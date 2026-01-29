@@ -111,10 +111,30 @@ class AssembleRequest(BaseModel):
     quantity: int = 1
 
 class Transaction(BaseModel):
-    type: str  # 'purchase_part' or 'assembly'
+    type: str  # 'purchase_part', 'assembly', or 'sale'
     date: datetime = Field(default_factory=datetime.utcnow)
     details: Dict
     cost: float = 0
+
+class Sale(BaseModel):
+    sale_date: datetime
+    finished_product_id: str
+    quantity: int
+    party_name: str
+    sale_price: float = 0
+    notes: Optional[str] = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class SaleResponse(BaseModel):
+    id: str
+    sale_date: datetime
+    finished_product_id: str
+    product_name: str
+    quantity: int
+    party_name: str
+    sale_price: float
+    notes: Optional[str] = ""
+    created_at: datetime
 
 # ============= SUPPLIER ROUTES =============
 
