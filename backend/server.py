@@ -477,6 +477,36 @@ async def get_sales():
         logger.error(f"Error fetching sales: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.delete("/sales/{sale_id}")
+async def delete_sale(sale_id: str):
+    try:
+        # Get sale record
+        sale = await db.sales.find_one({"_id": ObjectId(sale_id)})
+        if not sale:
+            raise HTTPException(status_code=404, detail="Sale record not found")
+        
+        # Get item
+        item = await db.items.find_one({"_id": ObjectId(sale['item_id'])})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        # Reverse: Add finished goods back
+        new_stock = item['current_stock'] + sale['quantity']
+        await db.items.update_one(
+            {"_id": ObjectId(sale['item_id'])},
+            {"$set": {"current_stock": new_stock}}
+        )
+        
+        # Delete sale record
+        await db.sales.delete_one({"_id": ObjectId(sale_id)})
+        
+        return {"message": "Sale deleted successfully", "reversed_quantity": sale['quantity']}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting sale: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.put("/sales/{sale_id}", response_model=SalesResponse)
 async def update_sale(sale_id: str, sale: SalesEntry):
     try:
