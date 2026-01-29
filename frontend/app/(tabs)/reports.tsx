@@ -60,41 +60,42 @@ export default function ReportsScreen() {
   const handleDownloadExcel = async () => {
     try {
       setDownloading(true);
+      Alert.alert('Preparing', 'Creating Excel report...');
       
       const timestamp = new Date().getTime();
       const filename = `bafna_lights_${timestamp}.xlsx`;
-      const fileUri = FileSystem.documentDirectory + filename;
-
-      console.log('Downloading from:', `${API_URL}/api/export/excel`);
-      console.log('Saving to:', fileUri);
+      const fileUri = `${FileSystem.documentDirectory}${filename}`;
 
       const downloadResult = await FileSystem.downloadAsync(
         `${API_URL}/api/export/excel`,
         fileUri
       );
 
-      console.log('Download result:', downloadResult);
-
       if (downloadResult.status === 200) {
+        // Check if file was created
         const fileInfo = await FileSystem.getInfoAsync(downloadResult.uri);
-        console.log('File info:', fileInfo);
         
-        const isAvailable = await Sharing.isAvailableAsync();
-        if (isAvailable) {
-          await Sharing.shareAsync(downloadResult.uri, {
-            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            dialogTitle: 'Bafna Lights Report',
-          });
-          Alert.alert('Success', 'Report downloaded successfully!');
+        if (fileInfo.exists) {
+          // Try to share
+          const canShare = await Sharing.isAvailableAsync();
+          if (canShare) {
+            await Sharing.shareAsync(downloadResult.uri);
+            Alert.alert('Success', 'Report downloaded!');
+          } else {
+            Alert.alert('Saved', `File saved to:\n${downloadResult.uri}\n\nYou can find it in your device files.`);
+          }
         } else {
-          Alert.alert('Download Complete', `File saved at: ${downloadResult.uri}`);
+          throw new Error('File was not created');
         }
       } else {
-        throw new Error(`Download failed with status: ${downloadResult.status}`);
+        throw new Error(`Server error: ${downloadResult.status}`);
       }
     } catch (error: any) {
-      console.error('Export error:', error);
-      Alert.alert('Export Failed', `Error: ${error.message}\n\nPlease check if you have internet connection.`);
+      console.error('Download error:', error);
+      Alert.alert(
+        'Download Failed', 
+        `Please try again. If the problem persists, contact support.\n\nError: ${error.message}`
+      );
     } finally {
       setDownloading(false);
     }
