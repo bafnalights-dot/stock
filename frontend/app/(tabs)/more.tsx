@@ -71,6 +71,25 @@ export default function MoreScreen() {
 
   const menuItems = [
     {
+      section: 'Quick Actions',
+      items: [
+        {
+          icon: 'cart',
+          title: 'Purchase Entry',
+          subtitle: 'Record parts purchase',
+          color: '#007AFF',
+          route: '/purchases/add',
+        },
+        {
+          icon: 'cash',
+          title: 'Sales Entry',
+          subtitle: 'Record product sale',
+          color: '#34C759',
+          route: '/sales/add',
+        },
+      ],
+    },
+    {
       section: 'Management',
       items: [
         {
@@ -79,6 +98,13 @@ export default function MoreScreen() {
           subtitle: 'Manage suppliers',
           color: '#5856D6',
           route: '/suppliers',
+        },
+        {
+          icon: 'receipt',
+          title: 'Sales History',
+          subtitle: 'View all sales',
+          color: '#34C759',
+          route: '/sales',
         },
         {
           icon: 'time',
