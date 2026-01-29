@@ -563,6 +563,85 @@ async def get_purchases():
         logger.error(f"Error fetching purchases: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.put("/purchases/{purchase_id}", response_model=PurchaseResponse)
+async def update_purchase(purchase_id: str, purchase: PurchaseEntry):
+    try:
+        # Get existing purchase entry
+        existing = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Purchase entry not found")
+        
+        # Get item for reference
+        item = await db.items.find_one({"_id": ObjectId(purchase.item_id)})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        # Reverse the old purchase (reduce part stock)
+        old_part_stock = await db.part_stocks.find_one({"part_name": existing['part_name']})
+        if old_part_stock:
+            new_stock = old_part_stock['current_stock'] - existing['quantity']
+            await db.part_stocks.update_one(
+                {"_id": old_part_stock['_id']},
+                {"$set": {"current_stock": new_stock}}
+            )
+        
+        # Apply new purchase (add part stock)
+        part_stock = await db.part_stocks.find_one({"part_name": purchase.part_name})
+        if not part_stock:
+            # Create if doesn't exist
+            part_stock = PartStock(part_name=purchase.part_name, opening_stock=0, current_stock=0)
+            result = await db.part_stocks.insert_one(part_stock.dict())
+            part_stock = await db.part_stocks.find_one({"_id": result.inserted_id})
+        
+        new_stock = part_stock['current_stock'] + purchase.quantity
+        await db.part_stocks.update_one(
+            {"_id": part_stock['_id']},
+            {"$set": {"current_stock": new_stock}}
+        )
+        
+        # Update purchase record
+        purchase_dict = purchase.dict()
+        purchase_dict['item_name'] = item['name']
+        await db.purchases.update_one(
+            {"_id": ObjectId(purchase_id)},
+            {"$set": purchase_dict}
+        )
+        
+        updated = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
+        return serialize_doc(updated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating purchase: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/purchases/{purchase_id}")
+async def delete_purchase(purchase_id: str):
+    try:
+        # Get existing purchase entry
+        existing = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Purchase entry not found")
+        
+        # Reduce part stock (reverse the purchase)
+        part_stock = await db.part_stocks.find_one({"part_name": existing['part_name']})
+        if part_stock:
+            new_stock = part_stock['current_stock'] - existing['quantity']
+            await db.part_stocks.update_one(
+                {"_id": part_stock['_id']},
+                {"$set": {"current_stock": new_stock}}
+            )
+        
+        # Delete purchase record
+        await db.purchases.delete_one({"_id": ObjectId(purchase_id)})
+        
+        return {"message": "Purchase entry deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting purchase: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============= RESET DATABASE =============
 
 @api_router.post("/reset-database")
