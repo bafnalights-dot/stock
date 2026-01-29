@@ -260,6 +260,46 @@ async def get_production():
         logger.error(f"Error fetching production: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.delete("/production/{production_id}")
+async def delete_production(production_id: str):
+    try:
+        # Get production record
+        production = await db.production.find_one({"_id": ObjectId(production_id)})
+        if not production:
+            raise HTTPException(status_code=404, detail="Production record not found")
+        
+        # Get item
+        item = await db.items.find_one({"_id": ObjectId(production['item_id'])})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        # Reverse: Add parts back
+        for part_spec in item['parts']:
+            part_stock = await db.part_stocks.find_one({"part_name": part_spec['part_name']})
+            if part_stock:
+                new_stock = part_stock['current_stock'] + (part_spec['quantity_needed'] * production['quantity'])
+                await db.part_stocks.update_one(
+                    {"_id": part_stock['_id']},
+                    {"$set": {"current_stock": new_stock}}
+                )
+        
+        # Reverse: Remove finished goods
+        new_item_stock = item['current_stock'] - production['quantity']
+        await db.items.update_one(
+            {"_id": ObjectId(production['item_id'])},
+            {"$set": {"current_stock": new_item_stock}}
+        )
+        
+        # Delete production record
+        await db.production.delete_one({"_id": ObjectId(production_id)})
+        
+        return {"message": "Production deleted successfully", "reversed_quantity": production['quantity']}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting production: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.put("/production/{production_id}", response_model=ProductionResponse)
 async def update_production(production_id: str, production: ProductionEntry):
     try:
