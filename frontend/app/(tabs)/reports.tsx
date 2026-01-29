@@ -183,11 +183,21 @@ export default function ReportsScreen() {
             ) : (
               itemDetails.production.map((prod: any) => (
                 <View key={prod.id} style={styles.historyCard}>
-                  <View style={styles.historyHeader}>
-                    <Ionicons name="construct" size={20} color="#34C759" />
-                    <Text style={styles.historyDate}>{prod.date}</Text>
+                  <View style={styles.historyRow}>
+                    <View style={styles.historyContent}>
+                      <View style={styles.historyHeader}>
+                        <Ionicons name="construct" size={20} color="#34C759" />
+                        <Text style={styles.historyDate}>{prod.date}</Text>
+                      </View>
+                      <Text style={styles.historyQty}>Produced: {prod.quantity} units</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => handleDeleteProduction(prod.id, itemDetails.item.name, prod.quantity)}
+                    >
+                      <Ionicons name="trash" size={20} color="#FF3B30" />
+                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.historyQty}>Produced: {prod.quantity} units</Text>
                 </View>
               ))
             )}
@@ -200,12 +210,22 @@ export default function ReportsScreen() {
             ) : (
               itemDetails.sales.map((sale: any) => (
                 <View key={sale.id} style={styles.historyCard}>
-                  <View style={styles.historyHeader}>
-                    <Ionicons name="cash" size={20} color="#007AFF" />
-                    <Text style={styles.historyDate}>{sale.date}</Text>
+                  <View style={styles.historyRow}>
+                    <View style={styles.historyContent}>
+                      <View style={styles.historyHeader}>
+                        <Ionicons name="cash" size={20} color="#007AFF" />
+                        <Text style={styles.historyDate}>{sale.date}</Text>
+                      </View>
+                      <Text style={styles.historyQty}>Sold: {sale.quantity} units</Text>
+                      <Text style={styles.historyParty}>To: {sale.party_name}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => handleDeleteSale(sale.id, itemDetails.item.name, sale.quantity)}
+                    >
+                      <Ionicons name="trash" size={20} color="#FF3B30" />
+                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.historyQty}>Sold: {sale.quantity} units</Text>
-                  <Text style={styles.historyParty}>To: {sale.party_name}</Text>
                 </View>
               ))
             )}
