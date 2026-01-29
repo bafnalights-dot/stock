@@ -542,6 +542,72 @@ async def export_excel():
         logger.error(f"Error exporting excel: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ============= SALES ROUTES =============
+
+@api_router.post("/sales", response_model=SaleResponse)
+async def create_sale(sale: Sale):
+    try:
+        # Check if product exists
+        product = await db.finished_products.find_one({"_id": ObjectId(sale.finished_product_id)})
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        # Check if enough stock
+        if product['quantity'] < sale.quantity:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Insufficient stock. Available: {product['quantity']}, Requested: {sale.quantity}"
+            )
+        
+        # Reduce product quantity
+        new_quantity = product['quantity'] - sale.quantity
+        await db.finished_products.update_one(
+            {"_id": ObjectId(sale.finished_product_id)},
+            {"$set": {"quantity": new_quantity}}
+        )
+        
+        # Create sale record
+        result = await db.sales.insert_one(sale.dict())
+        created = await db.sales.find_one({"_id": result.inserted_id})
+        
+        # Log transaction
+        transaction = Transaction(
+            type="sale",
+            date=sale.sale_date,
+            details={
+                "product_name": product['name'],
+                "quantity": sale.quantity,
+                "party_name": sale.party_name,
+                "sale_price": sale.sale_price
+            },
+            cost=-sale.sale_price  # Negative for revenue
+        )
+        await db.transactions.insert_one(transaction.dict())
+        
+        response = serialize_doc(created)
+        response['product_name'] = product['name']
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating sale: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/sales", response_model=List[SaleResponse])
+async def get_sales():
+    try:
+        sales = await db.sales.find().sort("sale_date", -1).to_list(1000)
+        result = []
+        for sale in sales:
+            response = serialize_doc(sale)
+            product = await db.finished_products.find_one({"_id": ObjectId(sale['finished_product_id'])})
+            response['product_name'] = product['name'] if product else "Unknown"
+            result.append(response)
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching sales: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============= DASHBOARD STATS =============
 
 @api_router.get("/dashboard/stats")
