@@ -237,17 +237,46 @@ export default function ReportsScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Parts Stock</Text>
+          
+          <View style={styles.filterCard}>
+            <Text style={styles.filterLabel}>Filter by Item:</Text>
+            <View style={styles.pickerWrapper}>
+              <Picker
+                selectedValue={selectedPartItemId}
+                onValueChange={(value) => setSelectedPartItemId(value)}
+              >
+                <Picker.Item label="All Parts" value="" />
+                {items.map((item) => (
+                  <Picker.Item key={item.id} label={item.name} value={item.id} />
+                ))}
+              </Picker>
+            </View>
+          </View>
+
           {partStocks.length === 0 ? (
             <Text style={styles.emptyText}>No parts in stock. Add items to create parts automatically.</Text>
           ) : (
-            partStocks.map((part) => (
-              <View key={part.id} style={styles.stockCard}>
-                <Text style={styles.stockName}>{part.part_name}</Text>
-                <View style={[styles.stockBadge, part.current_stock < 50 && styles.lowStockBadge]}>
-                  <Text style={styles.stockValue}>{part.current_stock}</Text>
-                </View>
-              </View>
-            ))
+            (() => {
+              const selectedItem = items.find(i => i.id === selectedPartItemId);
+              const filteredParts = selectedPartItemId 
+                ? partStocks.filter(part => 
+                    selectedItem?.parts.some((p: any) => p.part_name === part.part_name)
+                  )
+                : partStocks;
+
+              return filteredParts.length === 0 ? (
+                <Text style={styles.emptyText}>No parts found for this item.</Text>
+              ) : (
+                filteredParts.map((part) => (
+                  <View key={part.id} style={styles.stockCard}>
+                    <Text style={styles.stockName}>{part.part_name}</Text>
+                    <View style={[styles.stockBadge, part.current_stock < 50 && styles.lowStockBadge]}>
+                      <Text style={styles.stockValue}>{part.current_stock}</Text>
+                    </View>
+                  </View>
+                ))
+              );
+            })()
           )}
         </View>
 
