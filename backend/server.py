@@ -633,6 +633,38 @@ async def get_purchases():
         logger.error(f"Error fetching purchases: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.delete("/purchases/{purchase_id}")
+async def delete_purchase(purchase_id: str):
+    try:
+        # Get purchase record
+        purchase = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
+        if not purchase:
+            raise HTTPException(status_code=404, detail="Purchase record not found")
+        
+        # Update part stock (reverse)
+        part_stock = await db.part_stocks.find_one({"part_name": purchase['part_name']})
+        if part_stock:
+            new_stock = part_stock['current_stock'] - purchase['quantity']
+            if new_stock < 0:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot delete: would result in negative stock for {purchase['part_name']}"
+                )
+            await db.part_stocks.update_one(
+                {"_id": part_stock['_id']},
+                {"$set": {"current_stock": new_stock}}
+            )
+        
+        # Delete purchase record
+        await db.purchases.delete_one({"_id": ObjectId(purchase_id)})
+        
+        return {"message": "Purchase deleted successfully", "reversed_quantity": purchase['quantity']}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting purchase: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.put("/purchases/{purchase_id}", response_model=PurchaseResponse)
 async def update_purchase(purchase_id: str, purchase: PurchaseEntry):
     try:
