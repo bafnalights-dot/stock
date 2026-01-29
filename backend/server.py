@@ -437,6 +437,85 @@ async def get_sales():
         logger.error(f"Error fetching sales: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.put("/sales/{sale_id}", response_model=SalesResponse)
+async def update_sale(sale_id: str, sale: SalesEntry):
+    try:
+        # Get existing sale entry
+        existing = await db.sales.find_one({"_id": ObjectId(sale_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Sale entry not found")
+        
+        # Get item
+        item = await db.items.find_one({"_id": ObjectId(sale.item_id)})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        # Reverse the old sale (add stock back)
+        old_item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
+        if old_item:
+            new_stock = old_item['current_stock'] + existing['quantity']
+            await db.items.update_one(
+                {"_id": ObjectId(existing['item_id'])},
+                {"$set": {"current_stock": new_stock}}
+            )
+        
+        # Check stock for new sale
+        current_item = await db.items.find_one({"_id": ObjectId(sale.item_id)})
+        if current_item['current_stock'] < sale.quantity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient stock. Available: {current_item['current_stock']}, Requested: {sale.quantity}"
+            )
+        
+        # Apply new sale (reduce stock)
+        new_stock = current_item['current_stock'] - sale.quantity
+        await db.items.update_one(
+            {"_id": ObjectId(sale.item_id)},
+            {"$set": {"current_stock": new_stock}}
+        )
+        
+        # Update sale record
+        sale_dict = sale.dict()
+        await db.sales.update_one(
+            {"_id": ObjectId(sale_id)},
+            {"$set": sale_dict}
+        )
+        
+        updated = await db.sales.find_one({"_id": ObjectId(sale_id)})
+        return serialize_doc(updated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating sale: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/sales/{sale_id}")
+async def delete_sale(sale_id: str):
+    try:
+        # Get existing sale entry
+        existing = await db.sales.find_one({"_id": ObjectId(sale_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Sale entry not found")
+        
+        # Get item and add stock back
+        item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
+        if item:
+            new_stock = item['current_stock'] + existing['quantity']
+            await db.items.update_one(
+                {"_id": ObjectId(existing['item_id'])},
+                {"$set": {"current_stock": new_stock}}
+            )
+        
+        # Delete sale record
+        await db.sales.delete_one({"_id": ObjectId(sale_id)})
+        
+        return {"message": "Sale entry deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting sale: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============= PURCHASE API =============
 
 @api_router.post("/purchases", response_model=PurchaseResponse)
