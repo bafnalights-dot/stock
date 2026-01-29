@@ -197,19 +197,22 @@ async def create_production(production: ProductionEntry):
         # Check if parts are available
         insufficient_parts = []
         for part_spec in item['parts']:
-            part_stock = await db.part_stocks.find_one({"part_name": part_spec['part_name']})
-            if not part_stock:
+            # Find part with highest stock (to handle duplicates)
+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
+            if not part_stocks:
                 insufficient_parts.append({
                     "part_name": part_spec['part_name'],
                     "required": part_spec['quantity_needed'] * production.quantity,
                     "available": 0
                 })
-            elif part_stock['current_stock'] < (part_spec['quantity_needed'] * production.quantity):
-                insufficient_parts.append({
-                    "part_name": part_spec['part_name'],
-                    "required": part_spec['quantity_needed'] * production.quantity,
-                    "available": part_stock['current_stock']
-                })
+            else:
+                part_stock = part_stocks[0]  # Get the one with highest stock
+                if part_stock['current_stock'] < (part_spec['quantity_needed'] * production.quantity):
+                    insufficient_parts.append({
+                        "part_name": part_spec['part_name'],
+                        "required": part_spec['quantity_needed'] * production.quantity,
+                        "available": part_stock['current_stock']
+                    })
         
         if insufficient_parts:
             raise HTTPException(
