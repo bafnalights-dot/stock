@@ -418,8 +418,11 @@ const styles = StyleSheet.create({
   stockRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#E5E5EA' },
   stockLabel: { fontSize: 17, color: '#000' },
   historyCard: { backgroundColor: '#FFF', padding: 16, borderRadius: 12, marginBottom: 12 },
+  historyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  historyContent: { flex: 1 },
   historyHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   historyDate: { fontSize: 16, fontWeight: '600', marginLeft: 8, color: '#000' },
   historyQty: { fontSize: 15, color: '#000', marginLeft: 28 },
   historyParty: { fontSize: 14, color: '#8E8E93', marginLeft: 28, marginTop: 4 },
+  deleteButton: { padding: 8, marginLeft: 12 },
 });
