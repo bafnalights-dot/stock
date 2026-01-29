@@ -353,6 +353,47 @@ async def get_purchases():
         logger.error(f"Error fetching purchases: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ============= RESET DATABASE =============
+
+@api_router.post("/reset-database")
+async def reset_database():
+    try:
+        await db.items.delete_many({})
+        await db.part_stocks.delete_many({})
+        await db.production.delete_many({})
+        await db.sales.delete_many({})
+        await db.purchases.delete_many({})
+        return {"message": "Database reset successfully"}
+    except Exception as e:
+        logger.error(f"Error resetting database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============= DETAILED REPORTS =============
+
+@api_router.get("/reports/item-details/{item_id}")
+async def get_item_details(item_id: str):
+    try:
+        item = await db.items.find_one({"_id": ObjectId(item_id)})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        # Get production records
+        production = await db.production.find({"item_id": item_id}).sort("date", -1).to_list(1000)
+        
+        # Get sales records
+        sales = await db.sales.find({"item_id": item_id}).sort("date", -1).to_list(1000)
+        
+        return {
+            "item": serialize_doc(item),
+            "production": [serialize_doc(p) for p in production],
+            "sales": [serialize_doc(s) for s in sales]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching item details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============= EXCEL EXPORT =============
 
 @api_router.get("/export/excel")
