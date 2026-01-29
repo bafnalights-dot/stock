@@ -71,21 +71,21 @@ class PartStockResponse(BaseModel):
     created_at: datetime
 
 class ProductionEntry(BaseModel):
-    date: date
+    date: str
     item_id: str
     item_name: str
     quantity: int
 
 class ProductionResponse(BaseModel):
     id: str
-    date: date
+    date: str
     item_id: str
     item_name: str
     quantity: int
     created_at: datetime
 
 class SalesEntry(BaseModel):
-    date: date
+    date: str
     item_id: str
     item_name: str
     quantity: int
@@ -93,7 +93,7 @@ class SalesEntry(BaseModel):
 
 class SalesResponse(BaseModel):
     id: str
-    date: date
+    date: str
     item_id: str
     item_name: str
     quantity: int
@@ -101,14 +101,14 @@ class SalesResponse(BaseModel):
     created_at: datetime
 
 class PurchaseEntry(BaseModel):
-    date: date
+    date: str
     item_id: str
     part_name: str
     quantity: float
 
 class PurchaseResponse(BaseModel):
     id: str
-    date: date
+    date: str
     item_id: str
     item_name: str
     part_name: str
