@@ -57,6 +57,58 @@ export default function ReportsScreen() {
     }
   };
 
+  const handleDeleteProduction = async (productionId: string, itemName: string, quantity: number) => {
+    Alert.alert(
+      'Delete Production',
+      `Delete ${quantity} units of ${itemName} production?\\n\\nThis will reverse stock changes.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await axios.delete(`${API_URL}/api/production/${productionId}`);
+              Alert.alert('Success', 'Production deleted successfully!');
+              await loadData();
+              if (selectedItemId) {
+                await loadItemDetails(selectedItemId);
+              }
+            } catch (error: any) {
+              Alert.alert('Error', error.response?.data?.detail || 'Failed to delete production');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteSale = async (saleId: string, itemName: string, quantity: number) => {
+    Alert.alert(
+      'Delete Sale',
+      `Delete sale of ${quantity} units of ${itemName}?\\n\\nThis will restore stock.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await axios.delete(`${API_URL}/api/sales/${saleId}`);
+              Alert.alert('Success', 'Sale deleted successfully!');
+              await loadData();
+              if (selectedItemId) {
+                await loadItemDetails(selectedItemId);
+              }
+            } catch (error: any) {
+              Alert.alert('Error', error.response?.data?.detail || 'Failed to delete sale');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleDownloadExcel = async () => {
     try {
       setDownloading(true);
