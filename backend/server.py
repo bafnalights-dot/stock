@@ -222,7 +222,9 @@ async def create_production(production: ProductionEntry):
         
         # Deduct parts
         for part_spec in item['parts']:
-            part_stock = await db.part_stocks.find_one({"part_name": part_spec['part_name']})
+            # Find part with highest stock (to handle duplicates)
+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
+            part_stock = part_stocks[0]  # Get the one with highest stock
             new_stock = part_stock['current_stock'] - (part_spec['quantity_needed'] * production.quantity)
             await db.part_stocks.update_one(
                 {"_id": part_stock['_id']},
