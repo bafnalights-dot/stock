@@ -260,6 +260,137 @@ async def get_production():
         logger.error(f"Error fetching production: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.put("/production/{production_id}", response_model=ProductionResponse)
+async def update_production(production_id: str, production: ProductionEntry):
+    try:
+        # Get existing production entry
+        existing = await db.production.find_one({"_id": ObjectId(production_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Production entry not found")
+        
+        # Get item
+        item = await db.items.find_one({"_id": ObjectId(production.item_id)})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        # Reverse the old production (add parts back, reduce finished goods)
+        old_item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
+        if old_item:
+            # Add parts back
+            for part_spec in old_item['parts']:
+                part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", 1).to_list(10)
+                if part_stocks:
+                    part_stock = part_stocks[0]  # Get the one with lowest stock to balance
+                    new_stock = part_stock['current_stock'] + (part_spec['quantity_needed'] * existing['quantity'])
+                    await db.part_stocks.update_one(
+                        {"_id": part_stock['_id']},
+                        {"$set": {"current_stock": new_stock}}
+                    )
+            
+            # Reduce finished goods
+            new_item_stock = old_item['current_stock'] - existing['quantity']
+            await db.items.update_one(
+                {"_id": ObjectId(existing['item_id'])},
+                {"$set": {"current_stock": new_item_stock}}
+            )
+        
+        # Check if parts are available for new production
+        insufficient_parts = []
+        for part_spec in item['parts']:
+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
+            if not part_stocks:
+                insufficient_parts.append({
+                    "part_name": part_spec['part_name'],
+                    "required": part_spec['quantity_needed'] * production.quantity,
+                    "available": 0
+                })
+            else:
+                part_stock = part_stocks[0]
+                if part_stock['current_stock'] < (part_spec['quantity_needed'] * production.quantity):
+                    insufficient_parts.append({
+                        "part_name": part_spec['part_name'],
+                        "required": part_spec['quantity_needed'] * production.quantity,
+                        "available": part_stock['current_stock']
+                    })
+        
+        if insufficient_parts:
+            raise HTTPException(
+                status_code=400,
+                detail={"message": "Insufficient parts", "parts": insufficient_parts}
+            )
+        
+        # Apply new production (deduct parts, add finished goods)
+        for part_spec in item['parts']:
+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
+            part_stock = part_stocks[0]
+            new_stock = part_stock['current_stock'] - (part_spec['quantity_needed'] * production.quantity)
+            await db.part_stocks.update_one(
+                {"_id": part_stock['_id']},
+                {"$set": {"current_stock": new_stock}}
+            )
+        
+        # Add finished goods
+        current_item = await db.items.find_one({"_id": ObjectId(production.item_id)})
+        new_item_stock = current_item['current_stock'] + production.quantity
+        await db.items.update_one(
+            {"_id": ObjectId(production.item_id)},
+            {"$set": {"current_stock": new_item_stock}}
+        )
+        
+        # Update production record
+        production_dict = production.dict()
+        await db.production.update_one(
+            {"_id": ObjectId(production_id)},
+            {"$set": production_dict}
+        )
+        
+        updated = await db.production.find_one({"_id": ObjectId(production_id)})
+        return serialize_doc(updated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating production: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.delete("/production/{production_id}")
+async def delete_production(production_id: str):
+    try:
+        # Get existing production entry
+        existing = await db.production.find_one({"_id": ObjectId(production_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Production entry not found")
+        
+        # Get item
+        item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
+        if item:
+            # Add parts back
+            for part_spec in item['parts']:
+                part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", 1).to_list(10)
+                if part_stocks:
+                    part_stock = part_stocks[0]  # Get the one with lowest stock to balance
+                    new_stock = part_stock['current_stock'] + (part_spec['quantity_needed'] * existing['quantity'])
+                    await db.part_stocks.update_one(
+                        {"_id": part_stock['_id']},
+                        {"$set": {"current_stock": new_stock}}
+                    )
+            
+            # Reduce finished goods
+            new_item_stock = item['current_stock'] - existing['quantity']
+            await db.items.update_one(
+                {"_id": ObjectId(existing['item_id'])},
+                {"$set": {"current_stock": new_item_stock}}
+            )
+        
+        # Delete production record
+        await db.production.delete_one({"_id": ObjectId(production_id)})
+        
+        return {"message": "Production entry deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting production: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============= SALES API =============
 
 @api_router.post("/sales", response_model=SalesResponse)
