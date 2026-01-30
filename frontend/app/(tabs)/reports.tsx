@@ -19,6 +19,7 @@ export default function ReportsScreen() {
   const [selectedPartItemId, setSelectedPartItemId] = useState('');
   const [itemDetails, setItemDetails] = useState<any>(null);
   const [downloading, setDownloading] = useState(false);
+  const [emailing, setEmailing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<'summary' | 'details'>('summary');
 
