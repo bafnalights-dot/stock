@@ -410,7 +410,7 @@ export default function ReportsScreen() {
         <View style={styles.infoBox}>
           <Ionicons name="information-circle" size={20} color="#007AFF" />
           <Text style={styles.infoText}>
-            Excel report includes: Finished Goods, Parts, Production, Sales, and Purchase reports
+            Excel report includes: Finished Goods, Parts, Production, Sales, and Purchase reports. Download locally or email to bafnalights@gmail.com
           </Text>
         </View>
       </ScrollView>
