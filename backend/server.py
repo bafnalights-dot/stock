@@ -921,6 +921,18 @@ async def get_item_details(item_id: str):
         logger.error(f"Error fetching item details: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Google Drive Configuration
+GOOGLE_DRIVE_FOLDER_ID = "16S2JR4or0ZQYBnZGXzwXgntRrdqZLXEd"
+GOOGLE_CREDENTIALS_FILE = ROOT_DIR / "google_credentials.json"
+
+def get_drive_service():
+    """Initialize Google Drive service"""
+    credentials = service_account.Credentials.from_service_account_file(
+        str(GOOGLE_CREDENTIALS_FILE),
+        scopes=['https://www.googleapis.com/auth/drive.file']
+    )
+    return build('drive', 'v3', credentials=credentials)
+
 # ============= EXCEL EXPORT =============
 
 @api_router.get("/export/excel")
