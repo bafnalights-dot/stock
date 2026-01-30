@@ -392,6 +392,21 @@ export default function ReportsScreen() {
           )}
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={[styles.emailButton, emailing && styles.emailButtonDisabled]}
+          onPress={handleEmailReport}
+          disabled={emailing}
+        >
+          {emailing ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <>
+              <Ionicons name="mail" size={24} color="#FFF" />
+              <Text style={styles.emailButtonText}>Email Report</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
         <View style={styles.infoBox}>
           <Ionicons name="information-circle" size={20} color="#007AFF" />
           <Text style={styles.infoText}>
