@@ -1031,10 +1031,10 @@ async def export_excel():
         logger.error(f"Error exporting excel: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@api_router.post("/upload-to-drive")
-async def upload_to_drive():
+@api_router.post("/email-report")
+async def email_report():
     try:
-        # Generate Excel file (same as export)
+        # Generate Excel file
         wb = openpyxl.Workbook()
         wb.remove(wb.active)
         
@@ -1115,35 +1115,61 @@ async def upload_to_drive():
         wb.save(excel_file)
         excel_file.seek(0)
         
-        # Upload to Google Drive
+        # Send Email
         filename = f"bafna_lights_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         
-        drive_service = get_drive_service()
-        file_metadata = {
-            'name': filename,
-            'parents': [GOOGLE_DRIVE_FOLDER_ID]
-        }
-        media = MediaIoBaseUpload(
-            excel_file,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            resumable=True
-        )
+        gmail_user = os.environ.get('GMAIL_USER')
+        gmail_password = os.environ.get('GMAIL_APP_PASSWORD')
         
-        uploaded_file = drive_service.files().create(
-            body=file_metadata,
-            media_body=media,
-            fields='id, name, webViewLink'
-        ).execute()
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = gmail_user
+        msg['To'] = gmail_user
+        msg['Subject'] = f"Bafna Light's Stock Report - {datetime.now().strftime('%d %B %Y')}"
+        
+        body = f"""
+Dear Team,
+
+Please find attached the daily stock report for Bafna Light's.
+
+Report Date: {datetime.now().strftime('%d %B %Y')}
+Generated: {datetime.now().strftime('%I:%M %p')}
+
+This report includes:
+- Finished Goods Stock
+- Parts Stock
+- Production Report
+- Sales Report
+- Purchase Report
+
+Best regards,
+Bafna Light's Stock Management System
+        """
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Attach Excel file
+        attachment = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        attachment.set_payload(excel_file.read())
+        encoders.encode_base64(attachment)
+        attachment.add_header('Content-Disposition', f'attachment; filename={filename}')
+        msg.attach(attachment)
+        
+        # Send email
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(gmail_user, gmail_password)
+        text = msg.as_string()
+        server.sendmail(gmail_user, gmail_user, text)
+        server.quit()
         
         return {
             "success": True,
-            "message": "File uploaded to Google Drive successfully!",
-            "filename": filename,
-            "file_id": uploaded_file.get('id'),
-            "web_link": uploaded_file.get('webViewLink')
+            "message": f"Report emailed to {gmail_user} successfully!",
+            "filename": filename
         }
     except Exception as e:
-        logger.error(f"Error uploading to Drive: {e}")
+        logger.error(f"Error emailing report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 app.include_router(api_router)
