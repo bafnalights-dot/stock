@@ -168,6 +168,34 @@ async def get_item(item_id: str):
         logger.error(f"Error fetching item: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.put("/items/{item_id}", response_model=ItemResponse)
+async def update_item(item_id: str, item: Item):
+    try:
+        # Update the item
+        item_dict = item.dict()
+        result = await db.items.update_one(
+            {"_id": ObjectId(item_id)},
+            {"$set": item_dict}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        # Create part stock entries for new parts
+        for part_spec in item.parts:
+            existing_part = await db.part_stocks.find_one({"part_name": part_spec.part_name})
+            if not existing_part:
+                part_stock = PartStock(part_name=part_spec.part_name)
+                await db.part_stocks.insert_one(part_stock.dict())
+        
+        updated = await db.items.find_one({"_id": ObjectId(item_id)})
+        return serialize_doc(updated)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating item: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # ============= PART STOCKS API =============
 
 @api_router.get("/part-stocks", response_model=List[PartStockResponse])
