@@ -1,559 +1,748 @@
 diff --git a/backend/server.py b/backend/server.py
-index 00006e5..fece479 100644
+index da5b27c..b2611da 100644
 --- a/backend/server.py
 +++ b/backend/server.py
-@@ -260,6 +260,137 @@ async def get_production():
-         logger.error(f"Error fetching production: {e}")
+@@ -1031,10 +1031,10 @@ async def export_excel():
+         logger.error(f"Error exporting excel: {e}")
          raise HTTPException(status_code=500, detail=str(e))
  
-+@api_router.put("/production/{production_id}", response_model=ProductionResponse)
-+async def update_production(production_id: str, production: ProductionEntry):
-+    try:
-+        # Get existing production entry
-+        existing = await db.production.find_one({"_id": ObjectId(production_id)})
-+        if not existing:
-+            raise HTTPException(status_code=404, detail="Production entry not found")
+-@api_router.post("/upload-to-drive")
+-async def upload_to_drive():
++@api_router.post("/email-report")
++async def email_report():
+     try:
+-        # Generate Excel file (same as export)
++        # Generate Excel file
+         wb = openpyxl.Workbook()
+         wb.remove(wb.active)
+         
+@@ -1115,35 +1115,61 @@ async def upload_to_drive():
+         wb.save(excel_file)
+         excel_file.seek(0)
+         
+-        # Upload to Google Drive
++        # Send Email
+         filename = f"bafna_lights_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+         
+-        drive_service = get_drive_service()
+-        file_metadata = {
+-            'name': filename,
+-            'parents': [GOOGLE_DRIVE_FOLDER_ID]
+-        }
+-        media = MediaIoBaseUpload(
+-            excel_file,
+-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+-            resumable=True
+-        )
++        gmail_user = os.environ.get('GMAIL_USER')
++        gmail_password = os.environ.get('GMAIL_APP_PASSWORD')
 +        
-+        # Get item
-+        item = await db.items.find_one({"_id": ObjectId(production.item_id)})
-+        if not item:
-+            raise HTTPException(status_code=404, detail="Item not found")
-+        
-+        # Reverse the old production (add parts back, reduce finished goods)
-+        old_item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
-+        if old_item:
-+            # Add parts back
-+            for part_spec in old_item['parts']:
-+                part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", 1).to_list(10)
-+                if part_stocks:
-+                    part_stock = part_stocks[0]  # Get the one with lowest stock to balance
-+                    new_stock = part_stock['current_stock'] + (part_spec['quantity_needed'] * existing['quantity'])
-+                    await db.part_stocks.update_one(
-+                        {"_id": part_stock['_id']},
-+                        {"$set": {"current_stock": new_stock}}
-+                    )
-+            
-+            # Reduce finished goods
-+            new_item_stock = old_item['current_stock'] - existing['quantity']
-+            await db.items.update_one(
-+                {"_id": ObjectId(existing['item_id'])},
-+                {"$set": {"current_stock": new_item_stock}}
-+            )
-+        
-+        # Check if parts are available for new production
-+        insufficient_parts = []
-+        for part_spec in item['parts']:
-+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
-+            if not part_stocks:
-+                insufficient_parts.append({
-+                    "part_name": part_spec['part_name'],
-+                    "required": part_spec['quantity_needed'] * production.quantity,
-+                    "available": 0
-+                })
-+            else:
-+                part_stock = part_stocks[0]
-+                if part_stock['current_stock'] < (part_spec['quantity_needed'] * production.quantity):
-+                    insufficient_parts.append({
-+                        "part_name": part_spec['part_name'],
-+                        "required": part_spec['quantity_needed'] * production.quantity,
-+                        "available": part_stock['current_stock']
-+                    })
-+        
-+        if insufficient_parts:
-+            raise HTTPException(
-+                status_code=400,
-+                detail={"message": "Insufficient parts", "parts": insufficient_parts}
-+            )
-+        
-+        # Apply new production (deduct parts, add finished goods)
-+        for part_spec in item['parts']:
-+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
-+            part_stock = part_stocks[0]
-+            new_stock = part_stock['current_stock'] - (part_spec['quantity_needed'] * production.quantity)
-+            await db.part_stocks.update_one(
-+                {"_id": part_stock['_id']},
-+                {"$set": {"current_stock": new_stock}}
-+            )
-+        
-+        # Add finished goods
-+        current_item = await db.items.find_one({"_id": ObjectId(production.item_id)})
-+        new_item_stock = current_item['current_stock'] + production.quantity
-+        await db.items.update_one(
-+            {"_id": ObjectId(production.item_id)},
-+            {"$set": {"current_stock": new_item_stock}}
-+        )
-+        
-+        # Update production record
-+        production_dict = production.dict()
-+        await db.production.update_one(
-+            {"_id": ObjectId(production_id)},
-+            {"$set": production_dict}
-+        )
-+        
-+        updated = await db.production.find_one({"_id": ObjectId(production_id)})
-+        return serialize_doc(updated)
-+    except HTTPException:
-+        raise
-+    except Exception as e:
-+        logger.error(f"Error updating production: {e}")
-+        raise HTTPException(status_code=500, detail=str(e))
++        # Create message
++        msg = MIMEMultipart()
++        msg['From'] = gmail_user
++        msg['To'] = gmail_user
++        msg['Subject'] = f"Bafna Light's Stock Report - {datetime.now().strftime('%d %B %Y')}"
+         
+-        uploaded_file = drive_service.files().create(
+-            body=file_metadata,
+-            media_body=media,
+-            fields='id, name, webViewLink'
+-        ).execute()
++        body = f"""
++Dear Team,
 +
-+@api_router.delete("/production/{production_id}")
-+async def delete_production(production_id: str):
-+    try:
-+        # Get existing production entry
-+        existing = await db.production.find_one({"_id": ObjectId(production_id)})
-+        if not existing:
-+            raise HTTPException(status_code=404, detail="Production entry not found")
-+        
-+        # Get item
-+        item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
-+        if item:
-+            # Add parts back
-+            for part_spec in item['parts']:
-+                part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", 1).to_list(10)
-+                if part_stocks:
-+                    part_stock = part_stocks[0]  # Get the one with lowest stock to balance
-+                    new_stock = part_stock['current_stock'] + (part_spec['quantity_needed'] * existing['quantity'])
-+                    await db.part_stocks.update_one(
-+                        {"_id": part_stock['_id']},
-+                        {"$set": {"current_stock": new_stock}}
-+                    )
-+            
-+            # Reduce finished goods
-+            new_item_stock = item['current_stock'] - existing['quantity']
-+            await db.items.update_one(
-+                {"_id": ObjectId(existing['item_id'])},
-+                {"$set": {"current_stock": new_item_stock}}
-+            )
-+        
-+        # Delete production record
-+        await db.production.delete_one({"_id": ObjectId(production_id)})
-+        
-+        return {"message": "Production entry deleted successfully"}
-+    except HTTPException:
-+        raise
-+    except Exception as e:
-+        logger.error(f"Error deleting production: {e}")
-+        raise HTTPException(status_code=500, detail=str(e))
++Please find attached the daily stock report for Bafna Light's.
 +
- # ============= SALES API =============
- 
- @api_router.post("/sales", response_model=SalesResponse)
-@@ -306,6 +437,85 @@ async def get_sales():
-         logger.error(f"Error fetching sales: {e}")
++Report Date: {datetime.now().strftime('%d %B %Y')}
++Generated: {datetime.now().strftime('%I:%M %p')}
++
++This report includes:
++- Finished Goods Stock
++- Parts Stock
++- Production Report
++- Sales Report
++- Purchase Report
++
++Best regards,
++Bafna Light's Stock Management System
++        """
++        
++        msg.attach(MIMEText(body, 'plain'))
++        
++        # Attach Excel file
++        attachment = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
++        attachment.set_payload(excel_file.read())
++        encoders.encode_base64(attachment)
++        attachment.add_header('Content-Disposition', f'attachment; filename={filename}')
++        msg.attach(attachment)
++        
++        # Send email
++        server = smtplib.SMTP('smtp.gmail.com', 587)
++        server.starttls()
++        server.login(gmail_user, gmail_password)
++        text = msg.as_string()
++        server.sendmail(gmail_user, gmail_user, text)
++        server.quit()
+         
+         return {
+             "success": True,
+-            "message": "File uploaded to Google Drive successfully!",
+-            "filename": filename,
+-            "file_id": uploaded_file.get('id'),
+-            "web_link": uploaded_file.get('webViewLink')
++            "message": f"Report emailed to {gmail_user} successfully!",
++            "filename": filename
+         }
+     except Exception as e:
+-        logger.error(f"Error uploading to Drive: {e}")
++        logger.error(f"Error emailing report: {e}")
          raise HTTPException(status_code=500, detail=str(e))
  
-+@api_router.put("/sales/{sale_id}", response_model=SalesResponse)
-+async def update_sale(sale_id: str, sale: SalesEntry):
-+    try:
-+        # Get existing sale entry
-+        existing = await db.sales.find_one({"_id": ObjectId(sale_id)})
-+        if not existing:
-+            raise HTTPException(status_code=404, detail="Sale entry not found")
-+        
-+        # Get item
-+        item = await db.items.find_one({"_id": ObjectId(sale.item_id)})
-+        if not item:
-+            raise HTTPException(status_code=404, detail="Item not found")
-+        
-+        # Reverse the old sale (add stock back)
-+        old_item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
-+        if old_item:
-+            new_stock = old_item['current_stock'] + existing['quantity']
-+            await db.items.update_one(
-+                {"_id": ObjectId(existing['item_id'])},
-+                {"$set": {"current_stock": new_stock}}
-+            )
-+        
-+        # Check stock for new sale
-+        current_item = await db.items.find_one({"_id": ObjectId(sale.item_id)})
-+        if current_item['current_stock'] < sale.quantity:
-+            raise HTTPException(
-+                status_code=400,
-+                detail=f"Insufficient stock. Available: {current_item['current_stock']}, Requested: {sale.quantity}"
-+            )
-+        
-+        # Apply new sale (reduce stock)
-+        new_stock = current_item['current_stock'] - sale.quantity
-+        await db.items.update_one(
-+            {"_id": ObjectId(sale.item_id)},
-+            {"$set": {"current_stock": new_stock}}
-+        )
-+        
-+        # Update sale record
-+        sale_dict = sale.dict()
-+        await db.sales.update_one(
-+            {"_id": ObjectId(sale_id)},
-+            {"$set": sale_dict}
-+        )
-+        
-+        updated = await db.sales.find_one({"_id": ObjectId(sale_id)})
-+        return serialize_doc(updated)
-+    except HTTPException:
-+        raise
-+    except Exception as e:
-+        logger.error(f"Error updating sale: {e}")
-+        raise HTTPException(status_code=500, detail=str(e))
-+
-+@api_router.delete("/sales/{sale_id}")
-+async def delete_sale(sale_id: str):
-+    try:
-+        # Get existing sale entry
-+        existing = await db.sales.find_one({"_id": ObjectId(sale_id)})
-+        if not existing:
-+            raise HTTPException(status_code=404, detail="Sale entry not found")
-+        
-+        # Get item and add stock back
-+        item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
-+        if item:
-+            new_stock = item['current_stock'] + existing['quantity']
-+            await db.items.update_one(
-+                {"_id": ObjectId(existing['item_id'])},
-+                {"$set": {"current_stock": new_stock}}
-+            )
-+        
-+        # Delete sale record
-+        await db.sales.delete_one({"_id": ObjectId(sale_id)})
-+        
-+        return {"message": "Sale entry deleted successfully"}
-+    except HTTPException:
-+        raise
-+    except Exception as e:
-+        logger.error(f"Error deleting sale: {e}")
-+        raise HTTPException(status_code=500, detail=str(e))
-+
- # ============= PURCHASE API =============
+ app.include_router(api_router)
+diff --git a/frontend/app/(tabs)/reports.tsx b/frontend/app/(tabs)/reports.tsx
+index d5a72a5..3150b37 100644
+--- a/frontend/app/(tabs)/reports.tsx
++++ b/frontend/app/(tabs)/reports.tsx
+@@ -19,6 +19,7 @@ export default function ReportsScreen() {
+   const [selectedPartItemId, setSelectedPartItemId] = useState('');
+   const [itemDetails, setItemDetails] = useState<any>(null);
+   const [downloading, setDownloading] = useState(false);
++  const [emailing, setEmailing] = useState(false);
+   const [loading, setLoading] = useState(true);
+   const [viewMode, setViewMode] = useState<'summary' | 'details'>('summary');
  
- @api_router.post("/purchases", response_model=PurchaseResponse)
-@@ -353,6 +563,85 @@ async def get_purchases():
-         logger.error(f"Error fetching purchases: {e}")
-         raise HTTPException(status_code=500, detail=str(e))
+@@ -153,6 +154,29 @@ export default function ReportsScreen() {
+     }
+   };
  
-+@api_router.put("/purchases/{purchase_id}", response_model=PurchaseResponse)
-+async def update_purchase(purchase_id: str, purchase: PurchaseEntry):
-+    try:
-+        # Get existing purchase entry
-+        existing = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
-+        if not existing:
-+            raise HTTPException(status_code=404, detail="Purchase entry not found")
-+        
-+        # Get item for reference
-+        item = await db.items.find_one({"_id": ObjectId(purchase.item_id)})
-+        if not item:
-+            raise HTTPException(status_code=404, detail="Item not found")
-+        
-+        # Reverse the old purchase (reduce part stock)
-+        old_part_stock = await db.part_stocks.find_one({"part_name": existing['part_name']})
-+        if old_part_stock:
-+            new_stock = old_part_stock['current_stock'] - existing['quantity']
-+            await db.part_stocks.update_one(
-+                {"_id": old_part_stock['_id']},
-+                {"$set": {"current_stock": new_stock}}
-+            )
-+        
-+        # Apply new purchase (add part stock)
-+        part_stock = await db.part_stocks.find_one({"part_name": purchase.part_name})
-+        if not part_stock:
-+            # Create if doesn't exist
-+            part_stock = PartStock(part_name=purchase.part_name, opening_stock=0, current_stock=0)
-+            result = await db.part_stocks.insert_one(part_stock.dict())
-+            part_stock = await db.part_stocks.find_one({"_id": result.inserted_id})
-+        
-+        new_stock = part_stock['current_stock'] + purchase.quantity
-+        await db.part_stocks.update_one(
-+            {"_id": part_stock['_id']},
-+            {"$set": {"current_stock": new_stock}}
-+        )
-+        
-+        # Update purchase record
-+        purchase_dict = purchase.dict()
-+        purchase_dict['item_name'] = item['name']
-+        await db.purchases.update_one(
-+            {"_id": ObjectId(purchase_id)},
-+            {"$set": purchase_dict}
-+        )
-+        
-+        updated = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
-+        return serialize_doc(updated)
-+    except HTTPException:
-+        raise
-+    except Exception as e:
-+        logger.error(f"Error updating purchase: {e}")
-+        raise HTTPException(status_code=500, detail=str(e))
++  const handleEmailReport = async () => {
++    try {
++      setEmailing(true);
++      Alert.alert('Sending', 'Preparing and sending email report...');
++      
++      const response = await axios.post(`${API_URL}/api/email-report`);
++      
++      if (response.data.success) {
++        Alert.alert('Success', response.data.message);
++      } else {
++        throw new Error('Email sending failed');
++      }
++    } catch (error: any) {
++      console.error('Email error:', error);
++      Alert.alert(
++        'Email Failed', 
++        `Failed to send email report. Please try again.\n\nError: ${error.response?.data?.detail || error.message}`
++      );
++    } finally {
++      setEmailing(false);
++    }
++  };
 +
-+@api_router.delete("/purchases/{purchase_id}")
-+async def delete_purchase(purchase_id: str):
-+    try:
-+        # Get existing purchase entry
-+        existing = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
-+        if not existing:
-+            raise HTTPException(status_code=404, detail="Purchase entry not found")
-+        
-+        # Reduce part stock (reverse the purchase)
-+        part_stock = await db.part_stocks.find_one({"part_name": existing['part_name']})
-+        if part_stock:
-+            new_stock = part_stock['current_stock'] - existing['quantity']
-+            await db.part_stocks.update_one(
-+                {"_id": part_stock['_id']},
-+                {"$set": {"current_stock": new_stock}}
-+            )
-+        
-+        # Delete purchase record
-+        await db.purchases.delete_one({"_id": ObjectId(purchase_id)})
-+        
-+        return {"message": "Purchase entry deleted successfully"}
-+    except HTTPException:
-+        raise
-+    except Exception as e:
-+        logger.error(f"Error deleting purchase: {e}")
-+        raise HTTPException(status_code=500, detail=str(e))
-+
- # ============= RESET DATABASE =============
+   const lowStockItems = items.filter(item => item.current_stock < 10);
  
- @api_router.post("/reset-database")
+   if (viewMode === 'details' && itemDetails) {
+@@ -368,10 +392,25 @@ export default function ReportsScreen() {
+           )}
+         </TouchableOpacity>
+ 
++        <TouchableOpacity
++          style={[styles.emailButton, emailing && styles.emailButtonDisabled]}
++          onPress={handleEmailReport}
++          disabled={emailing}
++        >
++          {emailing ? (
++            <ActivityIndicator color="#FFF" />
++          ) : (
++            <>
++              <Ionicons name="mail" size={24} color="#FFF" />
++              <Text style={styles.emailButtonText}>Email Report</Text>
++            </>
++          )}
++        </TouchableOpacity>
++
+         <View style={styles.infoBox}>
+           <Ionicons name="information-circle" size={20} color="#007AFF" />
+           <Text style={styles.infoText}>
+-            Excel report includes: Finished Goods, Parts, Production, Sales, and Purchase reports
++            Excel report includes: Finished Goods, Parts, Production, Sales, and Purchase reports. Download locally or email to bafnalights@gmail.com
+           </Text>
+         </View>
+       </ScrollView>
+@@ -406,9 +445,12 @@ const styles = StyleSheet.create({
+   stockBadge: { backgroundColor: '#34C759', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16 },
+   lowStockBadge: { backgroundColor: '#FF3B30' },
+   stockValue: { fontSize: 16, fontWeight: 'bold', color: '#FFF' },
+-  downloadButton: { backgroundColor: '#5856D6', padding: 18, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 16 },
++  downloadButton: { backgroundColor: '#5856D6', padding: 18, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 8 },
+   downloadButtonDisabled: { backgroundColor: '#C7C7CC' },
+   downloadButtonText: { fontSize: 18, fontWeight: '600', color: '#FFF', marginLeft: 8 },
++  emailButton: { backgroundColor: '#34C759', padding: 18, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginVertical: 8 },
++  emailButtonDisabled: { backgroundColor: '#C7C7CC' },
++  emailButtonText: { fontSize: 18, fontWeight: '600', color: '#FFF', marginLeft: 8 },
+   infoBox: { flexDirection: 'row', backgroundColor: '#E3F2FF', padding: 16, borderRadius: 12, marginBottom: 24 },
+   infoText: { flex: 1, fontSize: 14, color: '#007AFF', marginLeft: 12, lineHeight: 20 },
+   emptyText: { fontSize: 15, color: '#8E8E93', fontStyle: 'italic', textAlign: 'center', paddingVertical: 20 },
 diff --git a/model.patch b/model.patch
-index c73f075..be43228 100644
+index c41f215..3001f56 100644
 --- a/model.patch
 +++ b/model.patch
-@@ -1,240 +0,0 @@
+@@ -1,559 +0,0 @@
 -diff --git a/backend/server.py b/backend/server.py
--index aa764b8..6d2d9f4 100644
+-index 00006e5..fece479 100644
 ---- a/backend/server.py
 -+++ b/backend/server.py
--@@ -197,19 +197,22 @@ async def create_production(production: ProductionEntry):
--         # Check if parts are available
--         insufficient_parts = []
--         for part_spec in item['parts']:
---            part_stock = await db.part_stocks.find_one({"part_name": part_spec['part_name']})
---            if not part_stock:
--+            # Find part with highest stock (to handle duplicates)
+-@@ -260,6 +260,137 @@ async def get_production():
+-         logger.error(f"Error fetching production: {e}")
+-         raise HTTPException(status_code=500, detail=str(e))
+- 
+-+@api_router.put("/production/{production_id}", response_model=ProductionResponse)
+-+async def update_production(production_id: str, production: ProductionEntry):
+-+    try:
+-+        # Get existing production entry
+-+        existing = await db.production.find_one({"_id": ObjectId(production_id)})
+-+        if not existing:
+-+            raise HTTPException(status_code=404, detail="Production entry not found")
+-+        
+-+        # Get item
+-+        item = await db.items.find_one({"_id": ObjectId(production.item_id)})
+-+        if not item:
+-+            raise HTTPException(status_code=404, detail="Item not found")
+-+        
+-+        # Reverse the old production (add parts back, reduce finished goods)
+-+        old_item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
+-+        if old_item:
+-+            # Add parts back
+-+            for part_spec in old_item['parts']:
+-+                part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", 1).to_list(10)
+-+                if part_stocks:
+-+                    part_stock = part_stocks[0]  # Get the one with lowest stock to balance
+-+                    new_stock = part_stock['current_stock'] + (part_spec['quantity_needed'] * existing['quantity'])
+-+                    await db.part_stocks.update_one(
+-+                        {"_id": part_stock['_id']},
+-+                        {"$set": {"current_stock": new_stock}}
+-+                    )
+-+            
+-+            # Reduce finished goods
+-+            new_item_stock = old_item['current_stock'] - existing['quantity']
+-+            await db.items.update_one(
+-+                {"_id": ObjectId(existing['item_id'])},
+-+                {"$set": {"current_stock": new_item_stock}}
+-+            )
+-+        
+-+        # Check if parts are available for new production
+-+        insufficient_parts = []
+-+        for part_spec in item['parts']:
 -+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
 -+            if not part_stocks:
--                 insufficient_parts.append({
--                     "part_name": part_spec['part_name'],
--                     "required": part_spec['quantity_needed'] * production.quantity,
--                     "available": 0
--                 })
---            elif part_stock['current_stock'] < (part_spec['quantity_needed'] * production.quantity):
---                insufficient_parts.append({
---                    "part_name": part_spec['part_name'],
---                    "required": part_spec['quantity_needed'] * production.quantity,
---                    "available": part_stock['current_stock']
---                })
+-+                insufficient_parts.append({
+-+                    "part_name": part_spec['part_name'],
+-+                    "required": part_spec['quantity_needed'] * production.quantity,
+-+                    "available": 0
+-+                })
 -+            else:
--+                part_stock = part_stocks[0]  # Get the one with highest stock
+-+                part_stock = part_stocks[0]
 -+                if part_stock['current_stock'] < (part_spec['quantity_needed'] * production.quantity):
 -+                    insufficient_parts.append({
 -+                        "part_name": part_spec['part_name'],
 -+                        "required": part_spec['quantity_needed'] * production.quantity,
 -+                        "available": part_stock['current_stock']
 -+                    })
--         
--         if insufficient_parts:
--             raise HTTPException(
--@@ -219,7 +222,9 @@ async def create_production(production: ProductionEntry):
--         
--         # Deduct parts
--         for part_spec in item['parts']:
---            part_stock = await db.part_stocks.find_one({"part_name": part_spec['part_name']})
--+            # Find part with highest stock (to handle duplicates)
+-+        
+-+        if insufficient_parts:
+-+            raise HTTPException(
+-+                status_code=400,
+-+                detail={"message": "Insufficient parts", "parts": insufficient_parts}
+-+            )
+-+        
+-+        # Apply new production (deduct parts, add finished goods)
+-+        for part_spec in item['parts']:
 -+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
--+            part_stock = part_stocks[0]  # Get the one with highest stock
--             new_stock = part_stock['current_stock'] - (part_spec['quantity_needed'] * production.quantity)
--             await db.part_stocks.update_one(
--                 {"_id": part_stock['_id']},
+-+            part_stock = part_stocks[0]
+-+            new_stock = part_stock['current_stock'] - (part_spec['quantity_needed'] * production.quantity)
+-+            await db.part_stocks.update_one(
+-+                {"_id": part_stock['_id']},
+-+                {"$set": {"current_stock": new_stock}}
+-+            )
+-+        
+-+        # Add finished goods
+-+        current_item = await db.items.find_one({"_id": ObjectId(production.item_id)})
+-+        new_item_stock = current_item['current_stock'] + production.quantity
+-+        await db.items.update_one(
+-+            {"_id": ObjectId(production.item_id)},
+-+            {"$set": {"current_stock": new_item_stock}}
+-+        )
+-+        
+-+        # Update production record
+-+        production_dict = production.dict()
+-+        await db.production.update_one(
+-+            {"_id": ObjectId(production_id)},
+-+            {"$set": production_dict}
+-+        )
+-+        
+-+        updated = await db.production.find_one({"_id": ObjectId(production_id)})
+-+        return serialize_doc(updated)
+-+    except HTTPException:
+-+        raise
+-+    except Exception as e:
+-+        logger.error(f"Error updating production: {e}")
+-+        raise HTTPException(status_code=500, detail=str(e))
+-+
+-+@api_router.delete("/production/{production_id}")
+-+async def delete_production(production_id: str):
+-+    try:
+-+        # Get existing production entry
+-+        existing = await db.production.find_one({"_id": ObjectId(production_id)})
+-+        if not existing:
+-+            raise HTTPException(status_code=404, detail="Production entry not found")
+-+        
+-+        # Get item
+-+        item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
+-+        if item:
+-+            # Add parts back
+-+            for part_spec in item['parts']:
+-+                part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", 1).to_list(10)
+-+                if part_stocks:
+-+                    part_stock = part_stocks[0]  # Get the one with lowest stock to balance
+-+                    new_stock = part_stock['current_stock'] + (part_spec['quantity_needed'] * existing['quantity'])
+-+                    await db.part_stocks.update_one(
+-+                        {"_id": part_stock['_id']},
+-+                        {"$set": {"current_stock": new_stock}}
+-+                    )
+-+            
+-+            # Reduce finished goods
+-+            new_item_stock = item['current_stock'] - existing['quantity']
+-+            await db.items.update_one(
+-+                {"_id": ObjectId(existing['item_id'])},
+-+                {"$set": {"current_stock": new_item_stock}}
+-+            )
+-+        
+-+        # Delete production record
+-+        await db.production.delete_one({"_id": ObjectId(production_id)})
+-+        
+-+        return {"message": "Production entry deleted successfully"}
+-+    except HTTPException:
+-+        raise
+-+    except Exception as e:
+-+        logger.error(f"Error deleting production: {e}")
+-+        raise HTTPException(status_code=500, detail=str(e))
+-+
+- # ============= SALES API =============
+- 
+- @api_router.post("/sales", response_model=SalesResponse)
+-@@ -306,6 +437,85 @@ async def get_sales():
+-         logger.error(f"Error fetching sales: {e}")
+-         raise HTTPException(status_code=500, detail=str(e))
+- 
+-+@api_router.put("/sales/{sale_id}", response_model=SalesResponse)
+-+async def update_sale(sale_id: str, sale: SalesEntry):
+-+    try:
+-+        # Get existing sale entry
+-+        existing = await db.sales.find_one({"_id": ObjectId(sale_id)})
+-+        if not existing:
+-+            raise HTTPException(status_code=404, detail="Sale entry not found")
+-+        
+-+        # Get item
+-+        item = await db.items.find_one({"_id": ObjectId(sale.item_id)})
+-+        if not item:
+-+            raise HTTPException(status_code=404, detail="Item not found")
+-+        
+-+        # Reverse the old sale (add stock back)
+-+        old_item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
+-+        if old_item:
+-+            new_stock = old_item['current_stock'] + existing['quantity']
+-+            await db.items.update_one(
+-+                {"_id": ObjectId(existing['item_id'])},
+-+                {"$set": {"current_stock": new_stock}}
+-+            )
+-+        
+-+        # Check stock for new sale
+-+        current_item = await db.items.find_one({"_id": ObjectId(sale.item_id)})
+-+        if current_item['current_stock'] < sale.quantity:
+-+            raise HTTPException(
+-+                status_code=400,
+-+                detail=f"Insufficient stock. Available: {current_item['current_stock']}, Requested: {sale.quantity}"
+-+            )
+-+        
+-+        # Apply new sale (reduce stock)
+-+        new_stock = current_item['current_stock'] - sale.quantity
+-+        await db.items.update_one(
+-+            {"_id": ObjectId(sale.item_id)},
+-+            {"$set": {"current_stock": new_stock}}
+-+        )
+-+        
+-+        # Update sale record
+-+        sale_dict = sale.dict()
+-+        await db.sales.update_one(
+-+            {"_id": ObjectId(sale_id)},
+-+            {"$set": sale_dict}
+-+        )
+-+        
+-+        updated = await db.sales.find_one({"_id": ObjectId(sale_id)})
+-+        return serialize_doc(updated)
+-+    except HTTPException:
+-+        raise
+-+    except Exception as e:
+-+        logger.error(f"Error updating sale: {e}")
+-+        raise HTTPException(status_code=500, detail=str(e))
+-+
+-+@api_router.delete("/sales/{sale_id}")
+-+async def delete_sale(sale_id: str):
+-+    try:
+-+        # Get existing sale entry
+-+        existing = await db.sales.find_one({"_id": ObjectId(sale_id)})
+-+        if not existing:
+-+            raise HTTPException(status_code=404, detail="Sale entry not found")
+-+        
+-+        # Get item and add stock back
+-+        item = await db.items.find_one({"_id": ObjectId(existing['item_id'])})
+-+        if item:
+-+            new_stock = item['current_stock'] + existing['quantity']
+-+            await db.items.update_one(
+-+                {"_id": ObjectId(existing['item_id'])},
+-+                {"$set": {"current_stock": new_stock}}
+-+            )
+-+        
+-+        # Delete sale record
+-+        await db.sales.delete_one({"_id": ObjectId(sale_id)})
+-+        
+-+        return {"message": "Sale entry deleted successfully"}
+-+    except HTTPException:
+-+        raise
+-+    except Exception as e:
+-+        logger.error(f"Error deleting sale: {e}")
+-+        raise HTTPException(status_code=500, detail=str(e))
+-+
+- # ============= PURCHASE API =============
+- 
+- @api_router.post("/purchases", response_model=PurchaseResponse)
+-@@ -353,6 +563,85 @@ async def get_purchases():
+-         logger.error(f"Error fetching purchases: {e}")
+-         raise HTTPException(status_code=500, detail=str(e))
+- 
+-+@api_router.put("/purchases/{purchase_id}", response_model=PurchaseResponse)
+-+async def update_purchase(purchase_id: str, purchase: PurchaseEntry):
+-+    try:
+-+        # Get existing purchase entry
+-+        existing = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
+-+        if not existing:
+-+            raise HTTPException(status_code=404, detail="Purchase entry not found")
+-+        
+-+        # Get item for reference
+-+        item = await db.items.find_one({"_id": ObjectId(purchase.item_id)})
+-+        if not item:
+-+            raise HTTPException(status_code=404, detail="Item not found")
+-+        
+-+        # Reverse the old purchase (reduce part stock)
+-+        old_part_stock = await db.part_stocks.find_one({"part_name": existing['part_name']})
+-+        if old_part_stock:
+-+            new_stock = old_part_stock['current_stock'] - existing['quantity']
+-+            await db.part_stocks.update_one(
+-+                {"_id": old_part_stock['_id']},
+-+                {"$set": {"current_stock": new_stock}}
+-+            )
+-+        
+-+        # Apply new purchase (add part stock)
+-+        part_stock = await db.part_stocks.find_one({"part_name": purchase.part_name})
+-+        if not part_stock:
+-+            # Create if doesn't exist
+-+            part_stock = PartStock(part_name=purchase.part_name, opening_stock=0, current_stock=0)
+-+            result = await db.part_stocks.insert_one(part_stock.dict())
+-+            part_stock = await db.part_stocks.find_one({"_id": result.inserted_id})
+-+        
+-+        new_stock = part_stock['current_stock'] + purchase.quantity
+-+        await db.part_stocks.update_one(
+-+            {"_id": part_stock['_id']},
+-+            {"$set": {"current_stock": new_stock}}
+-+        )
+-+        
+-+        # Update purchase record
+-+        purchase_dict = purchase.dict()
+-+        purchase_dict['item_name'] = item['name']
+-+        await db.purchases.update_one(
+-+            {"_id": ObjectId(purchase_id)},
+-+            {"$set": purchase_dict}
+-+        )
+-+        
+-+        updated = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
+-+        return serialize_doc(updated)
+-+    except HTTPException:
+-+        raise
+-+    except Exception as e:
+-+        logger.error(f"Error updating purchase: {e}")
+-+        raise HTTPException(status_code=500, detail=str(e))
+-+
+-+@api_router.delete("/purchases/{purchase_id}")
+-+async def delete_purchase(purchase_id: str):
+-+    try:
+-+        # Get existing purchase entry
+-+        existing = await db.purchases.find_one({"_id": ObjectId(purchase_id)})
+-+        if not existing:
+-+            raise HTTPException(status_code=404, detail="Purchase entry not found")
+-+        
+-+        # Reduce part stock (reverse the purchase)
+-+        part_stock = await db.part_stocks.find_one({"part_name": existing['part_name']})
+-+        if part_stock:
+-+            new_stock = part_stock['current_stock'] - existing['quantity']
+-+            await db.part_stocks.update_one(
+-+                {"_id": part_stock['_id']},
+-+                {"$set": {"current_stock": new_stock}}
+-+            )
+-+        
+-+        # Delete purchase record
+-+        await db.purchases.delete_one({"_id": ObjectId(purchase_id)})
+-+        
+-+        return {"message": "Purchase entry deleted successfully"}
+-+    except HTTPException:
+-+        raise
+-+    except Exception as e:
+-+        logger.error(f"Error deleting purchase: {e}")
+-+        raise HTTPException(status_code=500, detail=str(e))
+-+
+- # ============= RESET DATABASE =============
+- 
+- @api_router.post("/reset-database")
 -diff --git a/model.patch b/model.patch
--index a92c608..e69de29 100644
+-index c73f075..be43228 100644
 ---- a/model.patch
 -+++ b/model.patch
--@@ -1,153 +0,0 @@
+-@@ -1,240 +0,0 @@
+--diff --git a/backend/server.py b/backend/server.py
+--index aa764b8..6d2d9f4 100644
+----- a/backend/server.py
+--+++ b/backend/server.py
+--@@ -197,19 +197,22 @@ async def create_production(production: ProductionEntry):
+--         # Check if parts are available
+--         insufficient_parts = []
+--         for part_spec in item['parts']:
+---            part_stock = await db.part_stocks.find_one({"part_name": part_spec['part_name']})
+---            if not part_stock:
+--+            # Find part with highest stock (to handle duplicates)
+--+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
+--+            if not part_stocks:
+--                 insufficient_parts.append({
+--                     "part_name": part_spec['part_name'],
+--                     "required": part_spec['quantity_needed'] * production.quantity,
+--                     "available": 0
+--                 })
+---            elif part_stock['current_stock'] < (part_spec['quantity_needed'] * production.quantity):
+---                insufficient_parts.append({
+---                    "part_name": part_spec['part_name'],
+---                    "required": part_spec['quantity_needed'] * production.quantity,
+---                    "available": part_stock['current_stock']
+---                })
+--+            else:
+--+                part_stock = part_stocks[0]  # Get the one with highest stock
+--+                if part_stock['current_stock'] < (part_spec['quantity_needed'] * production.quantity):
+--+                    insufficient_parts.append({
+--+                        "part_name": part_spec['part_name'],
+--+                        "required": part_spec['quantity_needed'] * production.quantity,
+--+                        "available": part_stock['current_stock']
+--+                    })
+--         
+--         if insufficient_parts:
+--             raise HTTPException(
+--@@ -219,7 +222,9 @@ async def create_production(production: ProductionEntry):
+--         
+--         # Deduct parts
+--         for part_spec in item['parts']:
+---            part_stock = await db.part_stocks.find_one({"part_name": part_spec['part_name']})
+--+            # Find part with highest stock (to handle duplicates)
+--+            part_stocks = await db.part_stocks.find({"part_name": part_spec['part_name']}).sort("current_stock", -1).to_list(10)
+--+            part_stock = part_stocks[0]  # Get the one with highest stock
+--             new_stock = part_stock['current_stock'] - (part_spec['quantity_needed'] * production.quantity)
+--             await db.part_stocks.update_one(
+--                 {"_id": part_stock['_id']},
+--diff --git a/model.patch b/model.patch
+--index a92c608..e69de29 100644
+----- a/model.patch
+--+++ b/model.patch
+--@@ -1,153 +0,0 @@
+---diff --git a/test_result.md b/test_result.md
+---index 187cba4..a1a9d36 100644
+------ a/test_result.md
+---+++ b/test_result.md
+---@@ -100,4 +100,145 @@
+--- 
+--- #====================================================================================================
+--- # Testing Data - Main Agent and testing sub agent both should log testing data below this section
+----#====================================================================================================
+---\ No newline at end of file
+---+#====================================================================================================
+---+
+---+user_problem_statement: "Stock Management System with comprehensive backend APIs for suppliers, parts, finished products, recipes, assembly operations, transactions, and Excel export functionality"
+---+
+---+backend:
+---+  - task: "Suppliers API Implementation"
+---+    implemented: true
+---+    working: true
+---+    file: "/app/backend/server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: true
+---+          agent: "testing"
+---+          comment: "✅ POST /api/suppliers - Successfully creates suppliers with proper validation and response structure. ✅ GET /api/suppliers - Correctly retrieves all suppliers sorted by name. All required fields present in responses."
+---+
+---+  - task: "Parts API Implementation"
+---+    implemented: true
+---+    working: true
+---+    file: "/app/backend/server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: true
+---+          agent: "testing"
+---+          comment: "✅ POST /api/parts - Successfully creates parts with and without supplier associations. Correctly calculates purchase transactions. ✅ GET /api/parts - Properly retrieves parts with accurate low_stock flag calculations. ✅ PUT /api/parts/{id} - Updates work correctly. Supplier name resolution working properly."
+---+
+---+  - task: "Finished Products API Implementation"
+---+    implemented: true
+---+    working: true
+---+    file: "/app/backend/server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: true
+---+          agent: "testing"
+---+          comment: "✅ POST /api/finished-products - Successfully creates finished products with proper default values. ✅ GET /api/finished-products - Correctly retrieves products with has_recipe flag calculation. Response structure matches expected format."
+---+
+---+  - task: "Recipe API Implementation"
+---+    implemented: true
+---+    working: true
+---+    file: "/app/backend/server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: true
+---+          agent: "testing"
+---+          comment: "✅ POST /api/recipes - Successfully creates recipes with part associations. Handles recipe updates correctly. ✅ GET /api/recipes/{product_id} - Retrieves specific recipes with detailed part information. ✅ GET /api/recipes - Lists all recipes with proper formatting and part details."
+---+
+---+  - task: "Assembly API Implementation"
+---+    implemented: true
+---+    working: true
+---+    file: "/app/backend/server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: true
+---+          agent: "testing"
+---+          comment: "✅ POST /api/assemble - Successfully assembles products with correct part deduction calculations (Screw: 10, Bolt: 4, Washer: 6 for 2 units). Properly increases finished product quantities. ✅ Insufficient parts handling - Correctly identifies and reports insufficient parts without making changes. Transaction logging works properly."
+---+
+---+  - task: "Transactions API Implementation"
+---+    implemented: true
+---+    working: true
+---+    file: "/app/backend/server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: true
+---+          agent: "testing"
+---+          comment: "✅ GET /api/transactions - Successfully retrieves transaction history with proper sorting (newest first). Correctly logs both purchase_part and assembly transaction types. Transaction details and cost calculations are accurate."
+---+
+---+  - task: "Excel Export API Implementation"
+---+    implemented: true
+---+    working: true
+---+    file: "/app/backend/server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: true
+---+          agent: "testing"
+---+          comment: "✅ GET /api/export/excel - Successfully generates Excel files with proper content-type and disposition headers. File size indicates proper data export (6730 bytes). Multiple worksheets for parts, products, and transactions are working correctly."
+---+
+---+  - task: "Database Integration"
+---+    implemented: true
+---+    working: true
+---+    file: "/app/backend/server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: true
+---+          agent: "testing"
+---+          comment: "✅ MongoDB integration working properly. All CRUD operations successful. ObjectId to string serialization working correctly. Database connections stable throughout testing."
+---+
+---+  - task: "Error Handling and Validation"
+---+    implemented: true
+---+    working: true
+---+    file: "/app/backend/server.py"
+---+    stuck_count: 0
+---+    priority: "high"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: true
+---+          agent: "testing"
+---+          comment: "✅ Proper HTTP status codes returned. Validation working for required fields. Error responses are properly formatted. Graceful handling of insufficient parts scenario in assembly."
+---+
+---+frontend:
+---+  - task: "Frontend Implementation"
+---+    implemented: false
+---+    working: "NA"
+---+    file: "Not implemented"
+---+    stuck_count: 0
+---+    priority: "medium"
+---+    needs_retesting: false
+---+    status_history:
+---+        - working: "NA"
+---+          agent: "testing"
+---+          comment: "Frontend not tested as per testing agent limitations. Only backend APIs were tested."
+---+
+---+metadata:
+---+  created_by: "testing_agent"
+---+  version: "1.0"
+---+  test_sequence: 1
+---+  run_ui: false
+---+
+---+test_plan:
+---+  current_focus:
+---+    - "All backend APIs tested successfully"
+---+  stuck_tasks: []
+---+  test_all: true
+---+  test_priority: "high_first"
+---+
+---+agent_communication:
+---+    - agent: "testing"
+---+      message: "Comprehensive backend testing completed successfully. All 15 test cases passed including: Suppliers API (create/get), Parts API (create/get with low stock calculations), Finished Products API (create/get), Recipe API (create/get/list), Assembly API (success and failure scenarios), Transactions API (purchase and assembly logging), and Excel Export API (file generation). Stock calculations, transaction logging, and error handling all working correctly. Backend is fully functional and ready for production use."
+---\ No newline at end of file
 --diff --git a/test_result.md b/test_result.md
---index 187cba4..a1a9d36 100644
+--index a1a9d36..a4d556c 100644
 ----- a/test_result.md
 --+++ b/test_result.md
---@@ -100,4 +100,145 @@
+--@@ -105,6 +105,21 @@
+-- user_problem_statement: "Stock Management System with comprehensive backend APIs for suppliers, parts, finished products, recipes, assembly operations, transactions, and Excel export functionality"
 -- 
--- #====================================================================================================
--- # Testing Data - Main Agent and testing sub agent both should log testing data below this section
----#====================================================================================================
+-- backend:
+--+  - task: "Bafna Light's Backend API Implementation"
+--+    implemented: true
+--+    working: true
+--+    file: "/app/backend/server.py"
+--+    stuck_count: 0
+--+    priority: "high"
+--+    needs_retesting: false
+--+    status_history:
+--+        - working: false
+--+          agent: "testing"
+--+          comment: "Initial test failed - Production API reported insufficient parts due to duplicate part entries created during item creation. Found that find_one() was returning first entry (0 stock) instead of entry with actual stock."
+--+        - working: true
+--+          agent: "testing"
+--+          comment: "✅ FIXED and ALL TESTS PASSED: Modified production logic to use highest stock entry when duplicates exist. ✅ Item Creation (24w SL with 4 parts), ✅ Part Stock Management (100 units each), ✅ Production (5 units produced, parts deducted correctly: Body/Lens/PCB/Driver 100→95), ✅ Sales (2 units sold, finished goods 15→13), ✅ Purchase (50 units added to 24w Body), ✅ Excel Export (7832 bytes, 5 worksheets). All stock calculations accurate, workflow complete."
+--+
+--   - task: "Suppliers API Implementation"
+--     implemented: true
+--     working: true
+--@@ -241,4 +256,6 @@ test_plan:
+-- 
+-- agent_communication:
+--     - agent: "testing"
+---      message: "Comprehensive backend testing completed successfully. All 15 test cases passed including: Suppliers API (create/get), Parts API (create/get with low stock calculations), Finished Products API (create/get), Recipe API (create/get/list), Assembly API (success and failure scenarios), Transactions API (purchase and assembly logging), and Excel Export API (file generation). Stock calculations, transaction logging, and error handling all working correctly. Backend is fully functional and ready for production use."
 --\ No newline at end of file
---+#====================================================================================================
---+
---+user_problem_statement: "Stock Management System with comprehensive backend APIs for suppliers, parts, finished products, recipes, assembly operations, transactions, and Excel export functionality"
---+
---+backend:
---+  - task: "Suppliers API Implementation"
---+    implemented: true
---+    working: true
---+    file: "/app/backend/server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+        - working: true
---+          agent: "testing"
---+          comment: "✅ POST /api/suppliers - Successfully creates suppliers with proper validation and response structure. ✅ GET /api/suppliers - Correctly retrieves all suppliers sorted by name. All required fields present in responses."
---+
---+  - task: "Parts API Implementation"
---+    implemented: true
---+    working: true
---+    file: "/app/backend/server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+        - working: true
---+          agent: "testing"
---+          comment: "✅ POST /api/parts - Successfully creates parts with and without supplier associations. Correctly calculates purchase transactions. ✅ GET /api/parts - Properly retrieves parts with accurate low_stock flag calculations. ✅ PUT /api/parts/{id} - Updates work correctly. Supplier name resolution working properly."
---+
---+  - task: "Finished Products API Implementation"
---+    implemented: true
---+    working: true
---+    file: "/app/backend/server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+        - working: true
---+          agent: "testing"
---+          comment: "✅ POST /api/finished-products - Successfully creates finished products with proper default values. ✅ GET /api/finished-products - Correctly retrieves products with has_recipe flag calculation. Response structure matches expected format."
---+
---+  - task: "Recipe API Implementation"
---+    implemented: true
---+    working: true
---+    file: "/app/backend/server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+        - working: true
---+          agent: "testing"
---+          comment: "✅ POST /api/recipes - Successfully creates recipes with part associations. Handles recipe updates correctly. ✅ GET /api/recipes/{product_id} - Retrieves specific recipes with detailed part information. ✅ GET /api/recipes - Lists all recipes with proper formatting and part details."
---+
---+  - task: "Assembly API Implementation"
---+    implemented: true
---+    working: true
---+    file: "/app/backend/server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+        - working: true
---+          agent: "testing"
---+          comment: "✅ POST /api/assemble - Successfully assembles products with correct part deduction calculations (Screw: 10, Bolt: 4, Washer: 6 for 2 units). Properly increases finished product quantities. ✅ Insufficient parts handling - Correctly identifies and reports insufficient parts without making changes. Transaction logging works properly."
---+
---+  - task: "Transactions API Implementation"
---+    implemented: true
---+    working: true
---+    file: "/app/backend/server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+        - working: true
---+          agent: "testing"
---+          comment: "✅ GET /api/transactions - Successfully retrieves transaction history with proper sorting (newest first). Correctly logs both purchase_part and assembly transaction types. Transaction details and cost calculations are accurate."
---+
---+  - task: "Excel Export API Implementation"
---+    implemented: true
---+    working: true
---+    file: "/app/backend/server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+        - working: true
---+          agent: "testing"
---+          comment: "✅ GET /api/export/excel - Successfully generates Excel files with proper content-type and disposition headers. File size indicates proper data export (6730 bytes). Multiple worksheets for parts, products, and transactions are working correctly."
---+
---+  - task: "Database Integration"
---+    implemented: true
---+    working: true
---+    file: "/app/backend/server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+        - working: true
---+          agent: "testing"
---+          comment: "✅ MongoDB integration working properly. All CRUD operations successful. ObjectId to string serialization working correctly. Database connections stable throughout testing."
---+
---+  - task: "Error Handling and Validation"
---+    implemented: true
---+    working: true
---+    file: "/app/backend/server.py"
---+    stuck_count: 0
---+    priority: "high"
---+    needs_retesting: false
---+    status_history:
---+        - working: true
---+          agent: "testing"
---+          comment: "✅ Proper HTTP status codes returned. Validation working for required fields. Error responses are properly formatted. Graceful handling of insufficient parts scenario in assembly."
---+
---+frontend:
---+  - task: "Frontend Implementation"
---+    implemented: false
---+    working: "NA"
---+    file: "Not implemented"
---+    stuck_count: 0
---+    priority: "medium"
---+    needs_retesting: false
---+    status_history:
---+        - working: "NA"
---+          agent: "testing"
---+          comment: "Frontend not tested as per testing agent limitations. Only backend APIs were tested."
---+
---+metadata:
---+  created_by: "testing_agent"
---+  version: "1.0"
---+  test_sequence: 1
---+  run_ui: false
---+
---+test_plan:
---+  current_focus:
---+    - "All backend APIs tested successfully"
---+  stuck_tasks: []
---+  test_all: true
---+  test_priority: "high_first"
---+
---+agent_communication:
---+    - agent: "testing"
 --+      message: "Comprehensive backend testing completed successfully. All 15 test cases passed including: Suppliers API (create/get), Parts API (create/get with low stock calculations), Finished Products API (create/get), Recipe API (create/get/list), Assembly API (success and failure scenarios), Transactions API (purchase and assembly logging), and Excel Export API (file generation). Stock calculations, transaction logging, and error handling all working correctly. Backend is fully functional and ready for production use."
+--+    - agent: "testing"
+--+      message: "Bafna Light's Backend API Testing Complete - All 6 tests PASSED: ✅ Item Creation (24w SL with parts), ✅ Part Stock Management (100 units each), ✅ Production Process (5 units produced, parts correctly deducted), ✅ Sales Process (2 units sold, stock reduced), ✅ Purchase Process (50 units added to 24w Body), ✅ Excel Export (7832 bytes, valid format with 5 worksheets). FIXED: Production logic issue where duplicate part entries caused insufficient stock errors - now uses highest stock entry. All stock calculations working correctly. Backend ready for production."
 --\ No newline at end of file
--diff --git a/test_result.md b/test_result.md
--index a1a9d36..a4d556c 100644
----- a/test_result.md
--+++ b/test_result.md
--@@ -105,6 +105,21 @@
-- user_problem_statement: "Stock Management System with comprehensive backend APIs for suppliers, parts, finished products, recipes, assembly operations, transactions, and Excel export functionality"
-- 
-- backend:
--+  - task: "Bafna Light's Backend API Implementation"
--+    implemented: true
--+    working: true
--+    file: "/app/backend/server.py"
--+    stuck_count: 0
--+    priority: "high"
--+    needs_retesting: false
--+    status_history:
--+        - working: false
--+          agent: "testing"
--+          comment: "Initial test failed - Production API reported insufficient parts due to duplicate part entries created during item creation. Found that find_one() was returning first entry (0 stock) instead of entry with actual stock."
--+        - working: true
--+          agent: "testing"
--+          comment: "✅ FIXED and ALL TESTS PASSED: Modified production logic to use highest stock entry when duplicates exist. ✅ Item Creation (24w SL with 4 parts), ✅ Part Stock Management (100 units each), ✅ Production (5 units produced, parts deducted correctly: Body/Lens/PCB/Driver 100→95), ✅ Sales (2 units sold, finished goods 15→13), ✅ Purchase (50 units added to 24w Body), ✅ Excel Export (7832 bytes, 5 worksheets). All stock calculations accurate, workflow complete."
--+
--   - task: "Suppliers API Implementation"
--     implemented: true
--     working: true
--@@ -241,4 +256,6 @@ test_plan:
-- 
-- agent_communication:
--     - agent: "testing"
---      message: "Comprehensive backend testing completed successfully. All 15 test cases passed including: Suppliers API (create/get), Parts API (create/get with low stock calculations), Finished Products API (create/get), Recipe API (create/get/list), Assembly API (success and failure scenarios), Transactions API (purchase and assembly logging), and Excel Export API (file generation). Stock calculations, transaction logging, and error handling all working correctly. Backend is fully functional and ready for production use."
--\ No newline at end of file
--+      message: "Comprehensive backend testing completed successfully. All 15 test cases passed including: Suppliers API (create/get), Parts API (create/get with low stock calculations), Finished Products API (create/get), Recipe API (create/get/list), Assembly API (success and failure scenarios), Transactions API (purchase and assembly logging), and Excel Export API (file generation). Stock calculations, transaction logging, and error handling all working correctly. Backend is fully functional and ready for production use."
--+    - agent: "testing"
--+      message: "Bafna Light's Backend API Testing Complete - All 6 tests PASSED: ✅ Item Creation (24w SL with parts), ✅ Part Stock Management (100 units each), ✅ Production Process (5 units produced, parts correctly deducted), ✅ Sales Process (2 units sold, stock reduced), ✅ Purchase Process (50 units added to 24w Body), ✅ Excel Export (7832 bytes, valid format with 5 worksheets). FIXED: Production logic issue where duplicate part entries caused insufficient stock errors - now uses highest stock entry. All stock calculations working correctly. Backend ready for production."
--\ No newline at end of file
