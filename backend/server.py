@@ -1026,6 +1026,121 @@ async def export_excel():
         logger.error(f"Error exporting excel: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.post("/upload-to-drive")
+async def upload_to_drive():
+    try:
+        # Generate Excel file (same as export)
+        wb = openpyxl.Workbook()
+        wb.remove(wb.active)
+        
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        header_font = Font(bold=True, color="FFFFFF")
+        
+        # Items Stock Sheet
+        ws_items = wb.create_sheet("Finished Goods Stock")
+        ws_items.append(["Item Name", "Category", "Opening Stock", "Current Stock"])
+        for cell in ws_items[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+        
+        items = await db.items.find().sort("name", 1).to_list(1000)
+        for item in items:
+            ws_items.append([item['name'], item['category'], item['opening_stock'], item['current_stock']])
+        
+        # Parts Stock Sheet
+        ws_parts = wb.create_sheet("Parts Stock")
+        ws_parts.append(["Part Name", "Opening Stock", "Current Stock"])
+        for cell in ws_parts[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+        
+        parts = await db.part_stocks.find().sort("part_name", 1).to_list(1000)
+        for part in parts:
+            ws_parts.append([part['part_name'], part['opening_stock'], part['current_stock']])
+        
+        # Production Report
+        ws_prod = wb.create_sheet("Production Report")
+        ws_prod.append(["Date", "Item Name", "Quantity"])
+        for cell in ws_prod[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+        
+        production = await db.production.find().sort("date", -1).to_list(1000)
+        for prod in production:
+            ws_prod.append([str(prod['date']), prod['item_name'], prod['quantity']])
+        
+        # Sales Report
+        ws_sales = wb.create_sheet("Sales Report")
+        ws_sales.append(["Date", "Item Name", "Quantity", "Party Name"])
+        for cell in ws_sales[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+        
+        sales = await db.sales.find().sort("date", -1).to_list(1000)
+        for sale in sales:
+            ws_sales.append([str(sale['date']), sale['item_name'], sale['quantity'], sale['party_name']])
+        
+        # Purchase Report
+        ws_purch = wb.create_sheet("Purchase Report")
+        ws_purch.append(["Date", "Item Name", "Part Name", "Quantity"])
+        for cell in ws_purch[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+        
+        purchases = await db.purchases.find().sort("date", -1).to_list(1000)
+        for purch in purchases:
+            ws_purch.append([str(purch['date']), purch['item_name'], purch['part_name'], purch['quantity']])
+        
+        # Auto-adjust columns
+        for ws in [ws_items, ws_parts, ws_prod, ws_sales, ws_purch]:
+            for column in ws.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                ws.column_dimensions[column_letter].width = adjusted_width
+        
+        # Save to bytes
+        excel_file = io.BytesIO()
+        wb.save(excel_file)
+        excel_file.seek(0)
+        
+        # Upload to Google Drive
+        filename = f"bafna_lights_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        
+        drive_service = get_drive_service()
+        file_metadata = {
+            'name': filename,
+            'parents': [GOOGLE_DRIVE_FOLDER_ID]
+        }
+        media = MediaIoBaseUpload(
+            excel_file,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            resumable=True
+        )
+        
+        uploaded_file = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id, name, webViewLink'
+        ).execute()
+        
+        return {
+            "success": True,
+            "message": "File uploaded to Google Drive successfully!",
+            "filename": filename,
+            "file_id": uploaded_file.get('id'),
+            "web_link": uploaded_file.get('webViewLink')
+        }
+    except Exception as e:
+        logger.error(f"Error uploading to Drive: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 app.include_router(api_router)
 
 app.add_middleware(
