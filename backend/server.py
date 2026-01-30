@@ -300,6 +300,86 @@ async def delete_production(production_id: str):
         logger.error(f"Error deleting production: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.put("/production/{production_id}")
+async def update_production(production_id: str, new_quantity: int):
+    try:
+        # Get production record
+        production = await db.production.find_one({"_id": ObjectId(production_id)})
+        if not production:
+            raise HTTPException(status_code=404, detail="Production record not found")
+        
+        old_quantity = production['quantity']
+        quantity_diff = new_quantity - old_quantity
+        
+        if quantity_diff == 0:
+            return {"message": "No change in quantity"}
+        
+        # Get item
+        item = await db.items.find_one({"_id": ObjectId(production['item_id'])})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        # Check if we have enough parts for increase
+        if quantity_diff > 0:
+            insufficient_parts = []
+            for part_spec in item['parts']:
+                part_stock = await db.part_stocks.find_one({"part_name": part_spec['part_name']})
+                if not part_stock:
+                    insufficient_parts.append({
+                        "part_name": part_spec['part_name'],
+                        "required": part_spec['quantity_needed'] * quantity_diff,
+                        "available": 0
+                    })
+                elif part_stock['current_stock'] < (part_spec['quantity_needed'] * quantity_diff):
+                    insufficient_parts.append({
+                        "part_name": part_spec['part_name'],
+                        "required": part_spec['quantity_needed'] * quantity_diff,
+                        "available": part_stock['current_stock']
+                    })
+            
+            if insufficient_parts:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"message": "Insufficient parts for increase", "parts": insufficient_parts}
+                )
+        
+        # Update parts stock
+        for part_spec in item['parts']:
+            part_stock = await db.part_stocks.find_one({"part_name": part_spec['part_name']})
+            if part_stock:
+                # If increasing production, deduct more parts
+                # If decreasing production, add parts back
+                new_stock = part_stock['current_stock'] - (part_spec['quantity_needed'] * quantity_diff)
+                await db.part_stocks.update_one(
+                    {"_id": part_stock['_id']},
+                    {"$set": {"current_stock": new_stock}}
+                )
+        
+        # Update finished goods
+        new_item_stock = item['current_stock'] + quantity_diff
+        await db.items.update_one(
+            {"_id": ObjectId(production['item_id'])},
+            {"$set": {"current_stock": new_item_stock}}
+        )
+        
+        # Update production record
+        await db.production.update_one(
+            {"_id": ObjectId(production_id)},
+            {"$set": {"quantity": new_quantity}}
+        )
+        
+        return {
+            "message": "Production updated successfully",
+            "old_quantity": old_quantity,
+            "new_quantity": new_quantity,
+            "change": quantity_diff
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating production: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.put("/production/{production_id}", response_model=ProductionResponse)
 async def update_production(production_id: str, production: ProductionEntry):
     try:
