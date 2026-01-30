@@ -587,6 +587,59 @@ async def delete_sale(sale_id: str):
         logger.error(f"Error deleting sale: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@api_router.put("/sales/{sale_id}")
+async def update_sale(sale_id: str, new_quantity: int, party_name: str = None):
+    try:
+        # Get sale record
+        sale = await db.sales.find_one({"_id": ObjectId(sale_id)})
+        if not sale:
+            raise HTTPException(status_code=404, detail="Sale record not found")
+        
+        old_quantity = sale['quantity']
+        quantity_diff = new_quantity - old_quantity
+        
+        # Get item
+        item = await db.items.find_one({"_id": ObjectId(sale['item_id'])})
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+        
+        # Check if we have enough stock for increase
+        if quantity_diff > 0:
+            if item['current_stock'] < quantity_diff:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Insufficient stock. Available: {item['current_stock']}, Additional needed: {quantity_diff}"
+                )
+        
+        # Update finished goods stock
+        new_stock = item['current_stock'] - quantity_diff
+        await db.items.update_one(
+            {"_id": ObjectId(sale['item_id'])},
+            {"$set": {"current_stock": new_stock}}
+        )
+        
+        # Update sale record
+        update_fields = {"quantity": new_quantity}
+        if party_name:
+            update_fields["party_name"] = party_name
+            
+        await db.sales.update_one(
+            {"_id": ObjectId(sale_id)},
+            {"$set": update_fields}
+        )
+        
+        return {
+            "message": "Sale updated successfully",
+            "old_quantity": old_quantity,
+            "new_quantity": new_quantity,
+            "change": quantity_diff
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating sale: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @api_router.put("/sales/{sale_id}", response_model=SalesResponse)
 async def update_sale(sale_id: str, sale: SalesEntry):
     try:
