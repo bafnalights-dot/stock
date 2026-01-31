@@ -173,29 +173,6 @@ export default function ReportsScreen() {
     }
   };
 
-  const handleEmailReport = async () => {
-    try {
-      setEmailing(true);
-      Alert.alert('Sending', 'Preparing and sending email report...');
-      
-      const response = await axios.post(`${API_URL}/api/email-report`);
-      
-      if (response.data.success) {
-        Alert.alert('Success', response.data.message);
-      } else {
-        throw new Error('Email sending failed');
-      }
-    } catch (error: any) {
-      console.error('Email error:', error);
-      Alert.alert(
-        'Email Failed', 
-        `Failed to send email report. Please try again.\n\nError: ${error.response?.data?.detail || error.message}`
-      );
-    } finally {
-      setEmailing(false);
-    }
-  };
-
   const lowStockItems = items.filter(item => item.current_stock < 10);
 
   if (viewMode === 'details' && itemDetails) {
