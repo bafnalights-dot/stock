@@ -151,7 +151,7 @@ export default function ReportsScreen() {
 
   const handleEmailReport = async () => {
     try {
-      setDownloading(true);
+      setEmailing(true);
       Alert.alert('Sending Email', 'Preparing and sending report to bafnalights@gmail.com...');
 
       const response = await axios.post(`${API_URL}/api/email-report`);
@@ -169,7 +169,7 @@ export default function ReportsScreen() {
       console.error('Email error:', error);
       Alert.alert('Email Failed', error.response?.data?.detail || 'Could not send email. Please try again.');
     } finally {
-      setDownloading(false);
+      setEmailing(false);
     }
   };
 
