@@ -125,11 +125,9 @@ export default function ReportsScreen() {
       );
 
       if (downloadResult.status === 200) {
-        // Check if file was created
         const fileInfo = await FileSystem.getInfoAsync(downloadResult.uri);
         
         if (fileInfo.exists) {
-          // Try to share
           const canShare = await Sharing.isAvailableAsync();
           if (canShare) {
             await Sharing.shareAsync(downloadResult.uri);
@@ -145,10 +143,31 @@ export default function ReportsScreen() {
       }
     } catch (error: any) {
       console.error('Download error:', error);
-      Alert.alert(
-        'Download Failed', 
-        `Please try again. If the problem persists, contact support.\n\nError: ${error.message}`
-      );
+      Alert.alert('Download Failed', `Error: ${error.message}`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const handleEmailReport = async () => {
+    try {
+      setDownloading(true);
+      Alert.alert('Sending Email', 'Preparing and sending report to bafnalights@gmail.com...');
+
+      const response = await axios.post(`${API_URL}/api/email-report`);
+      
+      if (response.data.success) {
+        Alert.alert(
+          'Email Sent!',
+          `Report has been emailed to bafnalights@gmail.com\n\nCheck your inbox and save to Google Drive.`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        throw new Error('Email sending failed');
+      }
+    } catch (error: any) {
+      console.error('Email error:', error);
+      Alert.alert('Email Failed', error.response?.data?.detail || 'Could not send email. Please try again.');
     } finally {
       setDownloading(false);
     }
