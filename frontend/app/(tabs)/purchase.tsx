@@ -69,12 +69,31 @@ export default function PurchaseScreen() {
 
       <ScrollView style={styles.content}>
         <View style={styles.formCard}>
-          <TouchableOpacity style={styles.dateSelector} onPress={() => setShowDatePicker(true)}>
-            <Ionicons name="calendar" size={24} color="#34C759" />
-            <Text style={styles.dateText}>
-              {selectedDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-            </Text>
-            <Ionicons name="chevron-down" size={20} color="#8E8E93" />
+          <Text style={styles.sectionHeader}>📅 Purchase Date</Text>
+          <TouchableOpacity 
+            style={styles.dateButton} 
+            onPress={() => {
+              console.log('Date button tapped!');
+              setShowDatePicker(true);
+            }}
+            activeOpacity={0.7}
+          >
+            <View style={styles.dateButtonContent}>
+              <Ionicons name="calendar-outline" size={28} color="#34C759" />
+              <View style={styles.dateTextContainer}>
+                <Text style={styles.dateLabel}>Selected Date</Text>
+                <Text style={styles.dateValue}>
+                  {selectedDate.toLocaleDateString('en-US', { 
+                    weekday: 'short',
+                    year: 'numeric', 
+                    month: 'short', 
+                    day: 'numeric' 
+                  })}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#C7C7CC" />
+            </View>
+            <Text style={styles.tapHint}>Tap to change date</Text>
           </TouchableOpacity>
 
           <Text style={styles.label}>Select Item *</Text>
