@@ -70,31 +70,63 @@ export default function PurchaseScreen() {
       <ScrollView style={styles.content}>
         <View style={styles.formCard}>
           <Text style={styles.sectionHeader}>📅 Purchase Date</Text>
-          <TouchableOpacity 
-            style={styles.dateButton} 
-            onPress={() => {
-              console.log('Date button tapped!');
-              setShowDatePicker(true);
-            }}
-            activeOpacity={0.7}
-          >
-            <View style={styles.dateButtonContent}>
-              <Ionicons name="calendar-outline" size={28} color="#34C759" />
-              <View style={styles.dateTextContainer}>
-                <Text style={styles.dateLabel}>Selected Date</Text>
-                <Text style={styles.dateValue}>
-                  {selectedDate.toLocaleDateString('en-US', { 
-                    weekday: 'short',
-                    year: 'numeric', 
-                    month: 'short', 
-                    day: 'numeric' 
-                  })}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={24} color="#C7C7CC" />
-            </View>
-            <Text style={styles.tapHint}>Tap to change date</Text>
-          </TouchableOpacity>
+          
+          <View style={styles.dateInputContainer}>
+            <Text style={styles.label}>Day *</Text>
+            <TextInput
+              style={styles.dateInput}
+              placeholder="DD"
+              keyboardType="number-pad"
+              maxLength={2}
+              value={selectedDate.getDate().toString().padStart(2, '0')}
+              onChangeText={(text) => {
+                const day = parseInt(text) || 1;
+                const newDate = new Date(selectedDate);
+                newDate.setDate(Math.min(Math.max(day, 1), 31));
+                setSelectedDate(newDate);
+              }}
+            />
+            
+            <Text style={styles.label}>Month *</Text>
+            <TextInput
+              style={styles.dateInput}
+              placeholder="MM"
+              keyboardType="number-pad"
+              maxLength={2}
+              value={(selectedDate.getMonth() + 1).toString().padStart(2, '0')}
+              onChangeText={(text) => {
+                const month = parseInt(text) || 1;
+                const newDate = new Date(selectedDate);
+                newDate.setMonth(Math.min(Math.max(month, 1), 12) - 1);
+                setSelectedDate(newDate);
+              }}
+            />
+            
+            <Text style={styles.label}>Year *</Text>
+            <TextInput
+              style={styles.dateInput}
+              placeholder="YYYY"
+              keyboardType="number-pad"
+              maxLength={4}
+              value={selectedDate.getFullYear().toString()}
+              onChangeText={(text) => {
+                const year = parseInt(text) || 2026;
+                const newDate = new Date(selectedDate);
+                newDate.setFullYear(year);
+                setSelectedDate(newDate);
+              }}
+            />
+          </View>
+          
+          <View style={styles.dateDisplay}>
+            <Text style={styles.dateDisplayText}>
+              Selected: {selectedDate.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+              })}
+            </Text>
+          </View>
 
           <Text style={styles.label}>Select Item *</Text>
           <View style={styles.pickerWrapper}>
