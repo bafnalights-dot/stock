@@ -93,6 +93,23 @@ class ProductionEntry(BaseModel):
     item_id: str
     item_name: str
     quantity: int
+    class SalesEntry(BaseModel):
+    date: str
+    item_id: str
+    item_name: str
+    quantity: int
+    party_name: str
+
+
+class SalesResponse(BaseModel):
+    id: str
+    date: str
+    item_id: str
+    item_name: str
+    quantity: int
+    party_name: str
+    created_at: datetime
+
 
 class ProductionResponse(BaseModel):
     id: str
@@ -771,6 +788,45 @@ async def delete_sale(sale_id: str):
         raise
     except Exception as e:
         logger.error(f"Error deleting sale: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+# ========== SALES API ==========
+
+@api_router.post("/sales", response_model=SalesResponse)
+async def create_sale(sale: SalesEntry):
+    try:
+        # Get item
+        item = await db.items.find_one({"_id": ObjectId(sale.item_id)})
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        # Check stock
+        if item["current_stock"] < sale.quantity:
+            raise HTTPException(
+                status_code=400,
+                detail="Not enough stock available"
+            )
+
+        # Reduce stock
+        new_stock = item["current_stock"] - sale.quantity
+
+        await db.items.update_one(
+            {"_id": ObjectId(sale.item_id)},
+            {"$set": {"current_stock": new_stock}}
+        )
+
+        # Save sale
+        sale_dict = sale.dict()
+        sale_dict["created_at"] = datetime.utcnow()
+
+        result = await db.sales.insert_one(sale_dict)
+
+        created = await db.sales.find_one({"_id": result.inserted_id})
+
+        return serialize_doc(created)
+
+    except Exception as e:
+        logger.error(f"Error creating sale: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============= PURCHASE API =============
