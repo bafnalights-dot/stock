@@ -218,7 +218,6 @@ async def get_part_stocks():
         raise HTTPException(status_code=500, detail=str(e))
 
 @api_router.post("/part-stocks", response_model=PartStockResponse)
-@api_router.post("/part-stocks", response_model=PartStockResponse)
 async def create_part_stock(part: PartStock):
     try:
         part_dict = part.dict()
