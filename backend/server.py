@@ -69,6 +69,42 @@ async def get_user(
     except:
         raise HTTPException(401, "Invalid Token")
 
+# ============= ITEM PART TEMPLATES =============
+
+ITEM_TEMPLATES = {
+
+    "50w fl": [
+        {"part_name": "50w fl body", "quantity_needed": 1},
+        {"part_name": "50w fl handle", "quantity_needed": 1},
+        {"part_name": "50w fl frame", "quantity_needed": 1},
+        {"part_name": "50w driver", "quantity_needed": 1},
+        {"part_name": "50w fl pcb", "quantity_needed": 1},
+        {"part_name": "50w fl gasket", "quantity_needed": 1},
+        {"part_name": "50w fl reflector", "quantity_needed": 1},
+        {"part_name": "50w fl bscrew", "quantity_needed": 2},
+    ],
+
+    "100w fl": [
+        {"part_name": "100w fl body", "quantity_needed": 1},
+        {"part_name": "100w fl handle", "quantity_needed": 1},
+        {"part_name": "100w fl frame", "quantity_needed": 1},
+        {"part_name": "50w driver", "quantity_needed": 2},
+        {"part_name": "100w fl pcb", "quantity_needed": 1},
+        {"part_name": "100w fl gasket", "quantity_needed": 1},
+        {"part_name": "100w fl reflector", "quantity_needed": 1},
+        {"part_name": "100w fl bscrew", "quantity_needed": 2},
+    ],
+
+    "24w sl": [
+        {"part_name": "24w sl body", "quantity_needed": 1},
+        {"part_name": "24w sl lens", "quantity_needed": 1},
+        {"part_name": "24w sl gasket", "quantity_needed": 1},
+        {"part_name": "24w sl pcb", "quantity_needed": 1},
+        {"part_name": "24w sl driver", "quantity_needed": 1},
+        {"part_name": "24w sl bscrew", "quantity_needed": 2},
+    ],
+
+}
 
 # ================= MODELS =================
 
