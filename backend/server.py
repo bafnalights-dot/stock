@@ -220,15 +220,47 @@ async def get_part_stocks():
 @api_router.post("/part-stocks", response_model=PartStockResponse)
 async def create_part_stock(part: PartStock):
     try:
+        # Check if part already exists
+        existing = await db.part_stocks.find_one({
+            "part_name": part.part_name
+        })
+
+        # If exists → UPDATE
+        if existing:
+            new_stock = existing["current_stock"] + part.quantity
+
+            await db.part_stocks.update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$set": {
+                        "current_stock": new_stock
+                    }
+                }
+            )
+
+            updated = await db.part_stocks.find_one(
+                {"_id": existing["_id"]}
+            )
+
+            return serialize_doc(updated)
+
+        # If not exists → CREATE
         part_dict = part.dict()
-        part_dict['current_stock'] = part.opening_stock
-        
+        part_dict["opening_stock"] = part.quantity
+        part_dict["current_stock"] = part.quantity
+
         result = await db.part_stocks.insert_one(part_dict)
-        created = await db.part_stocks.find_one({"_id": result.inserted_id})
+
+        created = await db.part_stocks.find_one(
+            {"_id": result.inserted_id}
+        )
+
         return serialize_doc(created)
+
     except Exception as e:
         logger.error(f"Error creating part stock: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 # ============= PRODUCTION API =============
 
