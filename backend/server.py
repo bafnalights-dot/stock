@@ -16,11 +16,15 @@ from openpyxl.styles import Font, Alignment, PatternFill
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
-import smtplib
+import smtplib 
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email.mime.text import MIMEText
 from email import encoders
+
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from passlib.context import CryptContext
+import jwt
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -29,6 +33,15 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# ========== AUTH CONFIG ==========
+
+SECRET_KEY = "CHANGE_THIS_TO_RANDOM_SECRET_12345"
+ALGORITHM = "HS256"
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
+
 
 app = FastAPI()
 from starlette.middleware.cors import CORSMiddleware
@@ -119,21 +132,6 @@ class ProductionResponse(BaseModel):
     quantity: int
     created_at: datetime
 
-class SalesEntry(BaseModel):
-    date: str
-    item_id: str
-    item_name: str
-    quantity: int
-    party_name: str
-
-class SalesResponse(BaseModel):
-    id: str
-    date: str
-    item_id: str
-    item_name: str
-    quantity: int
-    party_name: str
-    created_at: datetime
 
 class PurchaseEntry(BaseModel):
     date: str
@@ -149,6 +147,40 @@ class PurchaseResponse(BaseModel):
     part_name: str
     quantity: float
     created_at: datetime
+
+class AdminLogin(BaseModel):
+    username: str
+    password: str
+
+def verify_password(plain, hashed):
+    return pwd_context.verify(plain, hashed)
+
+def hash_password(password):
+    return pwd_context.hash(password)
+
+def create_token(username: str):
+    return jwt.encode(
+        {"sub": username},
+        SECRET_KEY,
+        algorithm=ALGORITHM
+    )
+
+# ========== AUTH API ==========
+
+@api_router.post("/login")
+async def login(data: AdminLogin):
+    admin = await db.admins.find_one({"username": data.username})
+
+    if not admin:
+        raise HTTPException(status_code=401, detail="Invalid username")
+
+    if not verify_password(data.password, admin["password"]):
+        raise HTTPException(status_code=401, detail="Invalid password")
+
+    token = create_token(data.username)
+
+    return {"access_token": token}
+
 
 # ============= ITEMS API =============
 
@@ -1273,6 +1305,19 @@ Bafna Light's Stock Management System
     except Exception as e:
         logger.error(f"Error emailing report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ========== CREATE DEFAULT ADMIN ==========
+
+@app.on_event("startup")
+async def create_admin():
+    admin = await db.admins.find_one({"username": "admin"})
+
+    if not admin:
+        await db.admins.insert_one({
+            "username": "admin",
+            "password": hash_password("admin123")
+        })
+
 
 app.include_router(api_router)
 
