@@ -173,30 +173,42 @@ async def login(data: AdminLogin):
 
 # ================= ITEMS =================
 
-@router.post("/items")
+@api_router.post("/items", response_model=ItemResponse)
 async def create_item(item: Item):
 
-    data = item.dict()
-    data["current_stock"] = item.opening_stock
-    data["created_at"] = datetime.utcnow()
+    name_key = item.name.lower().strip()
 
-    await db.items.insert_one(data)
+    if name_key not in ITEM_TEMPLATES:
+        raise HTTPException(
+            status_code=400,
+            detail="This item does not have predefined parts"
+        )
 
-    for p in item.parts:
-        if not await db.part_stocks.find_one({"part_name": p.part_name}):
+    item_dict = item.dict()
+
+    # Auto add parts
+    item_dict["parts"] = ITEM_TEMPLATES[name_key]
+
+    item_dict["current_stock"] = item.opening_stock
+
+    result = await db.items.insert_one(item_dict)
+
+    # Create part stocks
+    for part in item_dict["parts"]:
+        existing = await db.part_stocks.find_one({"part_name": part["part_name"]})
+
+        if not existing:
             await db.part_stocks.insert_one({
-                "part_name": p.part_name,
-                "current_stock": 0
+                "part_name": part["part_name"],
+                "opening_stock": 0,
+                "current_stock": 0,
+                "created_at": datetime.utcnow()
             })
 
-    return {"message": "Item Created"}
+    created = await db.items.find_one({"_id": result.inserted_id})
 
+    return serialize_doc(created)
 
-@router.get("/items")
-async def get_items():
-
-    items = await db.items.find().to_list(1000)
-    return [serialize(i) for i in items]
 
 
 # ================= PART STOCK =================
