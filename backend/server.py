@@ -93,13 +93,13 @@ class ProductionEntry(BaseModel):
     item_id: str
     item_name: str
     quantity: int
-    class SalesEntry(BaseModel):
+
+class SalesEntry(BaseModel):
     date: str
     item_id: str
     item_name: str
     quantity: int
     party_name: str
-
 
 class SalesResponse(BaseModel):
     id: str
