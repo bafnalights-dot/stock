@@ -1,26 +1,18 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field
-from typing import List, Dict
+from passlib.context import CryptContext
+from pydantic import BaseModel
 from datetime import datetime
 from bson import ObjectId
-import os
-import jwt
-from passlib.context import CryptContext
-from dotenv import load_dotenv
-from pathlib import Path
-from starlette.middleware.cors import CORSMiddleware
+import jwt, os
 
-# ================= ENV =================
+# ================= CONFIG =================
 
-ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / ".env")
+MONGO_URL = os.environ.get("MONGO_URL")
+DB_NAME = os.environ.get("DB_NAME")
 
-MONGO_URL = os.getenv("MONGO_URL")
-DB_NAME = os.getenv("DB_NAME")
-
-SECRET_KEY = "CHANGE_THIS_SECRET"
+SECRET_KEY = "CHANGE_ME_123456"
 ALGORITHM = "HS256"
 
 # ================= APP =================
@@ -28,338 +20,334 @@ ALGORITHM = "HS256"
 app = FastAPI()
 router = APIRouter(prefix="/api")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ================= DATABASE =================
-
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 
-# ================= AUTH =================
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd = CryptContext(schemes=["bcrypt"])
 security = HTTPBearer()
 
-
-def hash_password(pw):
-    return pwd_context.hash(pw)
+# ================= AUTH =================
 
 
-def verify_password(pw, hash_pw):
-    return pwd_context.verify(pw, hash_pw)
+def hash_pass(p):
+    return pwd.hash(p)
 
 
-def create_token(username):
-    return jwt.encode({"sub": username}, SECRET_KEY, algorithm=ALGORITHM)
+def verify_pass(p, h):
+    return pwd.verify(p, h)
+
+
+def make_token(user):
+    return jwt.encode({"sub": user}, SECRET_KEY, algorithm=ALGORITHM)
 
 
 async def get_user(
     cred: HTTPAuthorizationCredentials = Depends(security)
 ):
     try:
-        token = cred.credentials
-        data = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        data = jwt.decode(
+            cred.credentials,
+            SECRET_KEY,
+            algorithms=[ALGORITHM]
+        )
         return data["sub"]
     except:
         raise HTTPException(401, "Invalid Token")
 
-# ============= ITEM PART TEMPLATES =============
-
-ITEM_TEMPLATES = {
-
-    "50w fl": [
-        {"part_name": "50w fl body", "quantity_needed": 1},
-        {"part_name": "50w fl handle", "quantity_needed": 1},
-        {"part_name": "50w fl frame", "quantity_needed": 1},
-        {"part_name": "50w driver", "quantity_needed": 1},
-        {"part_name": "50w fl pcb", "quantity_needed": 1},
-        {"part_name": "50w fl gasket", "quantity_needed": 1},
-        {"part_name": "50w fl reflector", "quantity_needed": 1},
-        {"part_name": "50w fl bscrew", "quantity_needed": 2},
-    ],
-
-    "100w fl": [
-        {"part_name": "100w fl body", "quantity_needed": 1},
-        {"part_name": "100w fl handle", "quantity_needed": 1},
-        {"part_name": "100w fl frame", "quantity_needed": 1},
-        {"part_name": "50w driver", "quantity_needed": 2},
-        {"part_name": "100w fl pcb", "quantity_needed": 1},
-        {"part_name": "100w fl gasket", "quantity_needed": 1},
-        {"part_name": "100w fl reflector", "quantity_needed": 1},
-        {"part_name": "100w fl bscrew", "quantity_needed": 2},
-    ],
-
-    "24w sl": [
-        {"part_name": "24w sl body", "quantity_needed": 1},
-        {"part_name": "24w sl lens", "quantity_needed": 1},
-        {"part_name": "24w sl gasket", "quantity_needed": 1},
-        {"part_name": "24w sl pcb", "quantity_needed": 1},
-        {"part_name": "24w sl driver", "quantity_needed": 1},
-        {"part_name": "24w sl bscrew", "quantity_needed": 2},
-    ],
-
-}
 
 # ================= MODELS =================
 
-class AdminLogin(BaseModel):
+class Login(BaseModel):
     username: str
     password: str
-
-
-class PartSpec(BaseModel):
-    part_name: str
-    quantity_needed: float
 
 
 class Item(BaseModel):
     name: str
     category: str
-    parts: List[PartSpec]
-    opening_stock: float = 0
+    opening_stock: int
+
+
+class Part(BaseModel):
+    name: str
+    quantity: int
 
 
 class Production(BaseModel):
-    date: str
     item_id: str
     quantity: int
 
 
 class Sale(BaseModel):
-    date: str
     item_id: str
     quantity: int
-    party_name: str
+    party: str
 
 
-class Purchase(BaseModel):
-    date: str
-    part_name: str
-    quantity: float
+# ================= UTILS =================
 
 
-# ================= HELPERS =================
-
-def serialize(d):
-    if "_id" in d:
-        d["id"] = str(d["_id"])
-        del d["_id"]
+def clean(d):
+    d["id"] = str(d["_id"])
+    del d["_id"]
     return d
 
 
-# ================= AUTH API =================
+# ================= LOGIN =================
 
 @router.post("/login")
-async def login(data: AdminLogin):
+async def login(data: Login):
 
-    admin = await db.admins.find_one({"username": data.username})
+    admin = await db.admin.find_one(
+        {"username": data.username}
+    )
 
     if not admin:
-        raise HTTPException(401, "Wrong username")
+        raise HTTPException(401, "Wrong User")
 
-    if not verify_password(data.password, admin["password"]):
-        raise HTTPException(401, "Wrong password")
+    if not verify_pass(
+        data.password,
+        admin["password"]
+    ):
+        raise HTTPException(401, "Wrong Pass")
 
-    token = create_token(data.username)
-
-    return {"access_token": token}
+    return {
+        "access_token": make_token(data.username)
+    }
 
 
 # ================= ITEMS =================
 
-@api_router.post("/items", response_model=ItemResponse)
-async def create_item(item: Item):
+@router.post("/items")
+async def add_item(item: Item, user=Depends(get_user)):
 
-    name_key = item.name.lower().strip()
+    item_data = item.dict()
+    item_data["current_stock"] = item.opening_stock
+    item_data["created"] = datetime.utcnow()
 
-    if name_key not in ITEM_TEMPLATES:
-        raise HTTPException(
-            status_code=400,
-            detail="This item does not have predefined parts"
+    await db.items.insert_one(item_data)
+
+    return {"msg": "Item Added"}
+
+
+@router.get("/items")
+async def get_items():
+
+    items = await db.items.find().to_list(1000)
+
+    return [clean(i) for i in items]
+
+
+# ================= PARTS =================
+
+@router.post("/parts")
+async def buy_part(p: Part, user=Depends(get_user)):
+
+    old = await db.parts.find_one(
+        {"name": p.name}
+    )
+
+    if old:
+        new = old["stock"] + p.quantity
+
+        await db.parts.update_one(
+            {"_id": old["_id"]},
+            {"$set": {"stock": new}}
         )
+    else:
+        await db.parts.insert_one({
+            "name": p.name,
+            "stock": p.quantity
+        })
 
-    item_dict = item.dict()
+    return {"msg": "Part Added"}
 
-    # Auto add parts
-    item_dict["parts"] = ITEM_TEMPLATES[name_key]
-
-    item_dict["current_stock"] = item.opening_stock
-
-    result = await db.items.insert_one(item_dict)
-
-    # Create part stocks
-    for part in item_dict["parts"]:
-        existing = await db.part_stocks.find_one({"part_name": part["part_name"]})
-
-        if not existing:
-            await db.part_stocks.insert_one({
-                "part_name": part["part_name"],
-                "opening_stock": 0,
-                "current_stock": 0,
-                "created_at": datetime.utcnow()
-            })
-
-    created = await db.items.find_one({"_id": result.inserted_id})
-
-    return serialize_doc(created)
-
-
-
-# ================= PART STOCK =================
 
 @router.get("/parts")
 async def get_parts():
 
-    parts = await db.part_stocks.find().to_list(1000)
-    return [serialize(p) for p in parts]
+    parts = await db.parts.find().to_list(1000)
+
+    return [clean(p) for p in parts]
+
+
+# ================= DRIVERS =================
+
+@router.post("/drivers")
+async def add_driver(p: Part, user=Depends(get_user)):
+
+    old = await db.drivers.find_one(
+        {"name": p.name}
+    )
+
+    if old:
+        new = old["stock"] + p.quantity
+
+        await db.drivers.update_one(
+            {"_id": old["_id"]},
+            {"$set": {"stock": new}}
+        )
+    else:
+        await db.drivers.insert_one({
+            "name": p.name,
+            "stock": p.quantity
+        })
+
+    return {"msg": "Driver Added"}
+
+
+@router.get("/drivers")
+async def get_drivers():
+
+    drivers = await db.drivers.find().to_list(1000)
+
+    return [clean(d) for d in drivers]
 
 
 # ================= PRODUCTION =================
 
-@router.post("/production")
-async def add_production(p: Production):
+# PART RULES
+PART_RULES = {
 
-    item = await db.items.find_one({"_id": ObjectId(p.item_id)})
+    "50W FL": {
+        "50W Driver": 1,
+        "50W PCB": 1,
+        "Body": 1
+    },
+
+    "100W FL": {
+        "50W Driver": 2,
+        "100W PCB": 1,
+        "Body": 1
+    },
+
+    "24W SL": {
+        "24W Driver": 1,
+        "PCB": 1,
+        "Body": 1
+    }
+
+}
+
+
+@router.post("/production")
+async def produce(p: Production, user=Depends(get_user)):
+
+    item = await db.items.find_one(
+        {"_id": ObjectId(p.item_id)}
+    )
 
     if not item:
-        raise HTTPException(404, "Item not found")
+        raise HTTPException(404, "Item Not Found")
 
-    for part in item["parts"]:
+    rules = PART_RULES.get(item["name"])
 
-        stock = await db.part_stocks.find_one(
-            {"part_name": part["part_name"]}
+    if not rules:
+        raise HTTPException(
+            400,
+            "No Part Rule For This Item"
         )
 
-        need = part["quantity_needed"] * p.quantity
+    # CHECK PARTS
 
-        if not stock or stock["current_stock"] < need:
-            raise HTTPException(400, "Not enough parts")
+    for part, qty in rules.items():
 
-    for part in item["parts"]:
-
-        stock = await db.part_stocks.find_one(
-            {"part_name": part["part_name"]}
+        db_part = await db.parts.find_one(
+            {"name": part}
         )
 
-        need = part["quantity_needed"] * p.quantity
+        need = qty * p.quantity
 
-        await db.part_stocks.update_one(
-            {"_id": stock["_id"]},
-            {"$inc": {"current_stock": -need}}
+        if not db_part or db_part["stock"] < need:
+            raise HTTPException(
+                400,
+                f"Not enough {part}"
+            )
+
+    # DEDUCT PARTS
+
+    for part, qty in rules.items():
+
+        db_part = await db.parts.find_one(
+            {"name": part}
         )
+
+        need = qty * p.quantity
+
+        await db.parts.update_one(
+            {"_id": db_part["_id"]},
+            {"$inc": {"stock": -need}}
+        )
+
+    # ADD ITEM STOCK
 
     await db.items.update_one(
-        {"_id": ObjectId(p.item_id)},
+        {"_id": item["_id"]},
         {"$inc": {"current_stock": p.quantity}}
     )
 
-    await db.production.insert_one(p.dict())
-
-    return {"message": "Production Added"}
+    return {"msg": "Production Done"}
 
 
 # ================= SALES =================
 
 @router.post("/sales")
-async def create_sale(s: Sale):
+async def sale(s: Sale, user=Depends(get_user)):
 
-    item = await db.items.find_one({"_id": ObjectId(s.item_id)})
+    item = await db.items.find_one(
+        {"_id": ObjectId(s.item_id)}
+    )
 
     if not item:
-        raise HTTPException(404, "Item not found")
+        raise HTTPException(404, "Item Not Found")
 
     if item["current_stock"] < s.quantity:
-        raise HTTPException(400, "No stock")
+        raise HTTPException(400, "No Stock")
 
     await db.items.update_one(
-        {"_id": ObjectId(s.item_id)},
+        {"_id": item["_id"]},
         {"$inc": {"current_stock": -s.quantity}}
     )
 
-    data = s.dict()
-    data["created_at"] = datetime.utcnow()
+    await db.sales.insert_one({
+        "item": s.item_id,
+        "qty": s.quantity,
+        "party": s.party,
+        "date": datetime.utcnow()
+    })
 
-    await db.sales.insert_one(data)
-
-    return {"message": "Sale Added"}
-
-
-@router.get("/sales")
-async def get_sales():
-
-    sales = await db.sales.find().to_list(1000)
-    return [serialize(s) for s in sales]
-
-
-# ================= PURCHASE =================
-
-@router.post("/purchase")
-async def add_purchase(p: Purchase):
-
-    stock = await db.part_stocks.find_one(
-        {"part_name": p.part_name}
-    )
-
-    if not stock:
-
-        await db.part_stocks.insert_one({
-            "part_name": p.part_name,
-            "current_stock": p.quantity
-        })
-
-    else:
-
-        await db.part_stocks.update_one(
-            {"_id": stock["_id"]},
-            {"$inc": {"current_stock": p.quantity}}
-        )
-
-    await db.purchases.insert_one(p.dict())
-
-    return {"message": "Purchase Added"}
+    return {"msg": "Sale Saved"}
 
 
 # ================= RESET =================
 
 @router.post("/reset")
-async def reset_db():
+async def reset(user=Depends(get_user)):
 
     await db.items.delete_many({})
-    await db.part_stocks.delete_many({})
-    await db.production.delete_many({})
+    await db.parts.delete_many({})
+    await db.drivers.delete_many({})
     await db.sales.delete_many({})
-    await db.purchases.delete_many({})
 
-    return {"message": "Database Reset"}
+    return {"msg": "System Reset"}
 
 
 # ================= ADMIN =================
 
 @app.on_event("startup")
-async def create_admin():
+async def admin():
 
-    admin = await db.admins.find_one({"username": "admin"})
+    a = await db.admin.find_one(
+        {"username": "admin"}
+    )
 
-    if not admin:
-
-        await db.admins.insert_one({
+    if not a:
+        await db.admin.insert_one({
             "username": "admin",
-            "password": hash_password("admin123")
+            "password": hash_pass("admin123")
         })
 
 
 # ================= START =================
 
 app.include_router(router)
-
-
-@app.on_event("shutdown")
-async def close_db():
-    client.close()
-
