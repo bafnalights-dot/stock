@@ -1,12 +1,11 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
-from datetime import date
 
 app = FastAPI()
 
-# CORS
+# ---------------- CORS ----------------
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,7 +40,7 @@ class Item(BaseModel):
 class Sale(BaseModel):
     item_name: str
     quantity: int
-    party: str
+    party_name: str   # FIXED
 
 
 class Purchase(BaseModel):
@@ -76,15 +75,17 @@ def get_items():
 def add_item(item: Item):
 
     ITEMS.append({
+        "id": str(len(ITEMS) + 1),
         "name": item.name,
         "category": item.category,
-        "stock": item.opening_stock
+        "current_stock": item.opening_stock,
+        "parts": []
     })
 
     return {"msg": "Item added"}
 
 
-# ---------------- PARTS ----------------
+# ---------------- PARTS / PURCHASE ----------------
 
 @app.get("/api/parts")
 def get_parts():
@@ -112,7 +113,9 @@ def production(p: Production):
     if not item:
         raise HTTPException(404, "Item not found")
 
-    item["stock"] += p.quantity
+    item["current_stock"] += p.quantity
+
+    PRODUCTION.append(p.dict())
 
     return {"msg": "Production saved"}
 
@@ -127,10 +130,10 @@ def sale(s: Sale):
     if not item:
         raise HTTPException(404, "Item not found")
 
-    if item["stock"] < s.quantity:
+    if item["current_stock"] < s.quantity:
         raise HTTPException(400, "Not enough stock")
 
-    item["stock"] -= s.quantity
+    item["current_stock"] -= s.quantity
 
     SALES.append(s.dict())
 
