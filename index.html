@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Bafna Lights - Stock System</title>
+
+<style>
+body{
+  font-family: Arial;
+  background:#f2f2f2;
+  margin:0;
+}
+
+header{
+  background:#007AFF;
+  color:white;
+  padding:15px;
+  text-align:center;
+  font-size:22px;
+}
+
+.container{
+  max-width:1000px;
+  margin:auto;
+  padding:20px;
+}
+
+.card{
+  background:white;
+  padding:15px;
+  border-radius:10px;
+  margin-bottom:20px;
+}
+
+input,select,button{
+  width:100%;
+  padding:10px;
+  margin:8px 0;
+}
+
+button{
+  background:#007AFF;
+  color:white;
+  border:none;
+  cursor:pointer;
+  font-size:16px;
+}
+
+button:hover{
+  background:#005ecb;
+}
+
+table{
+  width:100%;
+  border-collapse:collapse;
+}
+
+th,td{
+  border:1px solid #ddd;
+  padding:8px;
+  text-align:center;
+}
+
+th{
+  background:#007AFF;
+  color:white;
+}
+
+#dashboard{display:none;}
+
+.section-title{
+  background:#eee;
+  padding:8px;
+  font-weight:bold;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+Bafna Lights Stock Management
+</header>
+
+<div class="container">
+
+<!-- LOGIN -->
+<div class="card" id="loginBox">
+
+<h3>Admin Login</h3>
+
+<input id="username" placeholder="Username">
+<input id="password" type="password" placeholder="Password">
+
+<button onclick="login()">Login</button>
+
+</div>
+
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+
+
+<!-- STOCK -->
+<div class="card">
+
+<h3>Current Stock</h3>
+
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Stock</th>
+</tr>
+</thead>
+
+<tbody id="stockTable"></tbody>
+</table>
+
+</div>
+
+
+<!-- PRODUCTION -->
+<div class="card">
+
+<div class="section-title">Add Production</div>
+
+<select id="prodItem"></select>
+
+<input id="prodQty" type="number" placeholder="Quantity">
+
+<button onclick="addProduction()">Save Production</button>
+
+</div>
+
+
+<!-- SALES -->
+<div class="card">
+
+<div class="section-title">Add Sale</div>
+
+<select id="saleItem"></select>
+
+<input id="saleQty" type="number" placeholder="Quantity">
+
+<input id="party" placeholder="Party Name">
+
+<button onclick="addSale()">Save Sale</button>
+
+</div>
+
+
+<!-- ADD ITEM -->
+<div class="card">
+
+<div class="section-title">Add New Item</div>
+
+<input id="itemName" placeholder="Item Name">
+
+<select id="itemCategory">
+  <option value="Street Light">Street Light</option>
+  <option value="Flood Light">Flood Light</option>
+</select>
+
+<select id="itemTemplate">
+  <option value="">Select Model</option>
+
+  <option value="50w_fl">50W Flood Light</option>
+  <option value="100w_fl">100W Flood Light</option>
+  <option value="150w_fl">150W Flood Light</option>
+  <option value="200w_fl">200W Flood Light</option>
+
+  <option value="24w_sl">24W Street Light</option>
+  <option value="36w_sl">36W Street Light</option>
+  <option value="50w_sl">50W Street Light</option>
+  <option value="72w_sl">72W Street Light</option>
+  <option value="100w_sl">100W Street Light</option>
+  <option value="150w_sl">150W Street Light</option>
+
+</select>
+
+<input id="openingStock" type="number" placeholder="Opening Stock">
+
+<button onclick="addItem()">Save Item</button>
+
+</div>
+
+
+<!-- PURCHASE -->
+<div class="card">
+
+<div class="section-title">Add Purchase (Parts)</div>
+
+<select id="purchaseItem" onchange="loadParts()"></select>
+
+<select id="purchasePart"></select>
+
+<input id="partQty" type="number" placeholder="Quantity">
+
+<button onclick="addPurchase()">Save Purchase</button>
+
+</div>
+
+
+<button onclick="logout()">Logout</button>
+
+</div>
+</div>
+
+
+<script>
+
+const API = "https://stock-1-eyzx.onrender.com/api";
+
+let TOKEN = "";
+
+let ALL_ITEMS = [];
+
+
+// ================= PART TEMPLATES =================
+
+const PARTS = {
+
+  "50w_fl":[
+    {part_name:"50w fl body",quantity_needed:1},
+    {part_name:"50w fl handle",quantity_needed:1},
+    {part_name:"50w fl frame",quantity_needed:1},
+    {part_name:"50w driver",quantity_needed:1},
+    {part_name:"50w fl pcb",quantity_needed:1},
+    {part_name:"50w fl gasket",quantity_needed:1},
+    {part_name:"50w fl reflector",quantity_needed:1},
+    {part_name:"50w fl bscrew",quantity_needed:2}
+  ],
+
+  "100w_fl":[
+    {part_name:"100w fl body",quantity_needed:1},
+    {part_name:"100w fl handle",quantity_needed:1},
+    {part_name:"100w fl frame",quantity_needed:1},
+    {part_name:"50w driver",quantity_needed:2},
+    {part_name:"100w fl pcb",quantity_needed:1},
+    {part_name:"100w fl gasket",quantity_needed:1},
+    {part_name:"100w fl reflector",quantity_needed:1},
+    {part_name:"100w fl bscrew",quantity_needed:2}
+  ],
+
+  "24w_sl":[
+    {part_name:"24w sl body",quantity_needed:1},
+    {part_name:"24w sl lens",quantity_needed:1},
+    {part_name:"24w sl gasket",quantity_needed:1},
+    {part_name:"24w sl pcb",quantity_needed:1},
+    {part_name:"24w sl driver",quantity_needed:1},
+    {part_name:"24w sl bscrew",quantity_needed:2}
+  ],
+
+  "50w_sl":[
+    {part_name:"50w sl body",quantity_needed:1},
+    {part_name:"50w sl lens",quantity_needed:1},
+    {part_name:"50w sl gasket",quantity_needed:1},
+    {part_name:"50w sl pcb",quantity_needed:1},
+    {part_name:"50w sl driver",quantity_needed:1},
+    {part_name:"50w sl bscrew",quantity_needed:2}
+  ]
+};
+
+
+// ================= LOGIN =================
+
+async function login(){
+
+let res = await fetch(API+"/login",{
+  method:"POST",
+  headers:{"Content-Type":"application/json"},
+  body:JSON.stringify({
+    username:username.value,
+    password:password.value
+  })
+});
+
+let data = await res.json();
+
+if(data.access_token){
+
+  TOKEN = data.access_token;
+
+  loginBox.style.display="none";
+  dashboard.style.display="block";
+
+  loadItems();
+
+}else{
+  alert("Login Failed");
+}
+
+}
+
+
+// ================= LOAD ITEMS =================
+
+async function loadItems(){
+
+let res = await fetch(API+"/items",{
+  headers:{
+    "Authorization":"Bearer "+TOKEN
+  }
+});
+
+if(!res.ok){
+  alert("Session expired. Please login again.");
+  logout();
+  return;
+}
+
+ALL_ITEMS = await res.json();
+
+stockTable.innerHTML="";
+saleItem.innerHTML="";
+prodItem.innerHTML="";
+purchaseItem.innerHTML="";
+
+ALL_ITEMS.forEach(i=>{
+
+  let tr=document.createElement("tr");
+  tr.innerHTML=`<td>${i.name}</td><td>${i.current_stock}</td>`;
+  stockTable.appendChild(tr);
+
+  let op=document.createElement("option");
+  op.value=i.id;
+  op.text=i.name+" ("+i.current_stock+")";
+
+  saleItem.appendChild(op.cloneNode(true));
+  prodItem.appendChild(op.cloneNode(true));
+  purchaseItem.appendChild(op.cloneNode(true));
+
+});
+
+loadParts();
+}
+
+
+// ================= LOAD PARTS =================
+
+function loadParts(){
+
+let itemId = purchaseItem.value;
+
+purchasePart.innerHTML="";
+
+let item = ALL_ITEMS.find(i=>i.id===itemId);
+
+if(!item) return;
+
+item.parts.forEach(p=>{
+
+  let op = document.createElement("option");
+  op.value = p.part_name;
+  op.text = p.part_name;
+
+  purchasePart.appendChild(op);
+
+});
+
+}
+
+
+// ================= ADD ITEM =================
+
+async function addItem(){
+
+if(!itemName.value || !itemTemplate.value){
+  alert("Fill all fields");
+  return;
+}
+
+let parts = PARTS[itemTemplate.value];
+
+if(!parts){
+  alert("Invalid Model");
+  return;
+}
+
+let res = await fetch(API+"/items",{
+ method:"POST",
+ headers:{
+  "Content-Type":"application/json",
+  "Authorization":"Bearer "+TOKEN
+ },
+ body:JSON.stringify({
+  name:itemName.value,
+  category:itemCategory.value,
+  opening_stock:Number(openingStock.value),
+  parts:parts
+ })
+});
+
+if(res.ok){
+ alert("Item Added");
+ loadItems();
+}else{
+ alert("Error adding item");
+}
+
+}
+
+
+// ================= ADD PRODUCTION =================
+
+async function addProduction(){
+
+if(!prodItem.value||!prodQty.value){
+  alert("Fill all fields");
+  return;
+}
+
+await fetch(API+"/production",{
+method:"POST",
+headers:{
+ "Content-Type":"application/json",
+ "Authorization":"Bearer "+TOKEN
+},
+body:JSON.stringify({
+ date:new Date().toISOString().slice(0,10),
+ item_id:prodItem.value,
+ item_name:prodItem.options[prodItem.selectedIndex].text,
+ quantity:Number(prodQty.value)
+})
+});
+
+alert("Production Saved");
+loadItems();
+
+}
+
+
+// ================= ADD SALE =================
+
+async function addSale(){
+
+if(!saleItem.value||!saleQty.value||!party.value){
+ alert("Fill all fields");
+ return;
+}
+
+await fetch(API+"/sales",{
+method:"POST",
+headers:{
+ "Content-Type":"application/json",
+ "Authorization":"Bearer "+TOKEN
+},
+body:JSON.stringify({
+ date:new Date().toISOString().slice(0,10),
+ item_id:saleItem.value,
+ item_name:saleItem.options[saleItem.selectedIndex].text,
+ quantity:Number(saleQty.value),
+ party_name:party.value
+})
+});
+
+alert("Sale Saved");
+loadItems();
+
+}
+
+
+// ================= ADD PURCHASE =================
+
+async function addPurchase(){
+
+if(!purchaseItem.value||!purchasePart.value||!partQty.value){
+ alert("Fill all fields");
+ return;
+}
+
+await fetch(API+"/purchases",{
+method:"POST",
+headers:{
+ "Content-Type":"application/json",
+ "Authorization":"Bearer "+TOKEN
+},
+body:JSON.stringify({
+ date:new Date().toISOString().slice(0,10),
+ item_id:purchaseItem.value,
+ part_name:purchasePart.value,
+ quantity:Number(partQty.value)
+})
+});
+
+alert("Purchase Saved");
+loadItems();
+
+}
+
+
+// ================= LOGOUT =================
+
+function logout(){
+
+TOKEN="";
+
+dashboard.style.display="none";
+loginBox.style.display="block";
+
+}
+
+</script>
+
+</body>
+</html>
