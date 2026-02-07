@@ -43,6 +43,8 @@ class Item(BaseModel):
     name: str
     category: str
     opening_stock: int
+    parts: list   # BOM
+
 
 
 class Sale(BaseModel):
@@ -86,7 +88,8 @@ def add_item(item: Item):
     data = {
         "name": item.name,
         "category": item.category,
-        "stock": item.opening_stock
+        "stock": item.opening_stock,
+        "parts": item.parts   # save BOM
     }
 
     items_col.insert_one(data)
@@ -125,6 +128,25 @@ def production(p: Production):
     if not item:
         raise HTTPException(404, "Item not found")
 
+    # Deduct parts
+    for part in item["parts"]:
+
+        need = part["qty"] * p.quantity
+
+        part_doc = parts_col.find_one({"part_name": part["name"]})
+
+        if not part_doc or part_doc["stock"] < need:
+            raise HTTPException(
+                400,
+                f"Not enough {part['name']} stock"
+            )
+
+        parts_col.update_one(
+            {"part_name": part["name"]},
+            {"$inc": {"stock": -need}}
+        )
+
+    # Add finished stock
     items_col.update_one(
         {"name": p.item_name},
         {"$inc": {"stock": p.quantity}}
