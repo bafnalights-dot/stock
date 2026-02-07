@@ -39,18 +39,22 @@ class Login(BaseModel):
     password: str
 
 
+class PartBOM(BaseModel):
+    name: str
+    qty: int
+
+
 class Item(BaseModel):
     name: str
     category: str
     opening_stock: int
-    parts: list   # BOM
-
+    parts: List[PartBOM]
 
 
 class Sale(BaseModel):
     item_name: str
     quantity: int
-    party_name: str   # FIXED
+    party: str
 
 
 class Purchase(BaseModel):
@@ -61,6 +65,7 @@ class Purchase(BaseModel):
 class Production(BaseModel):
     item_name: str
     quantity: int
+
 
 
 # ---------------- LOGIN ----------------
@@ -85,16 +90,24 @@ def get_items():
 @app.post("/api/items")
 def add_item(item: Item):
 
-    data = {
+    ITEMS.append({
         "name": item.name,
         "category": item.category,
         "stock": item.opening_stock,
-        "parts": item.parts   # save BOM
-    }
-
-    items_col.insert_one(data)
+        "parts": [p.dict() for p in item.parts]
+    })
 
     return {"msg": "Item added"}
+
+@app.get("/api/items/{name}/parts")
+def get_item_parts(name: str):
+
+    item = next((i for i in ITEMS if i["name"] == name), None)
+
+    if not item:
+        raise HTTPException(404, "Item not found")
+
+    return item["parts"]
 
 
 
@@ -123,40 +136,31 @@ def purchase(p: Purchase):
 @app.post("/api/production")
 def production(p: Production):
 
-    item = items_col.find_one({"name": p.item_name})
+    item = next((i for i in ITEMS if i["name"] == p.item_name), None)
 
     if not item:
         raise HTTPException(404, "Item not found")
 
-    # Deduct parts
+    # Check & deduct parts
     for part in item["parts"]:
 
+        part_name = part["name"]
         need = part["qty"] * p.quantity
 
-        part_doc = parts_col.find_one({"part_name": part["name"]})
+        if part_name not in PARTS:
+            raise HTTPException(400, f"{part_name} not in stock")
 
-        if not part_doc or part_doc["stock"] < need:
-            raise HTTPException(
-                400,
-                f"Not enough {part['name']} stock"
-            )
+        if PARTS[part_name] < need:
+            raise HTTPException(400, f"Not enough {part_name}")
 
-        parts_col.update_one(
-            {"part_name": part["name"]},
-            {"$inc": {"stock": -need}}
-        )
+        PARTS[part_name] -= need
 
-    # Add finished stock
-    items_col.update_one(
-        {"name": p.item_name},
-        {"$inc": {"stock": p.quantity}}
-    )
+    # Increase finished stock
+    item["stock"] += p.quantity
 
-    production_col.insert_one(p.dict())
+    PRODUCTION.append(p.dict())
 
     return {"msg": "Production saved"}
-
-
 # ---------------- SALES ----------------
 
 @app.post("/api/sales")
