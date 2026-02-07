@@ -16,9 +16,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import axios from 'axios';
 
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+/* ✅ FIXED: Backend URL */
+const API_URL = "https://stock-1-eyzx.onrender.com";
 
 export default function ItemsScreen() {
+
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -51,12 +53,14 @@ export default function ItemsScreen() {
       category: 'Street Light',
       opening_stock: '0',
     });
+
     setShowModal(true);
   };
 
   // Save item
   const handleSaveItem = async () => {
-    if (!formData.name) {
+
+    if (!formData.name.trim()) {
       Alert.alert('Error', 'Enter item name');
       return;
     }
@@ -64,10 +68,11 @@ export default function ItemsScreen() {
     setLoading(true);
 
     try {
+
       const payload = {
         name: formData.name,
         category: formData.category,
-        opening_stock: parseInt(formData.opening_stock),
+        opening_stock: parseInt(formData.opening_stock || "0"),
       };
 
       await axios.post(`${API_URL}/api/items`, payload);
@@ -77,10 +82,11 @@ export default function ItemsScreen() {
       setShowModal(false);
       loadItems();
 
-    } catch (err: any) {
+    } catch (err) {
       console.log(err);
       Alert.alert('Error', 'Failed to save item');
-    } finally {
+    }
+    finally {
       setLoading(false);
     }
   };
@@ -99,11 +105,16 @@ export default function ItemsScreen() {
 
       {/* LIST */}
       <ScrollView style={styles.content}>
+
         {items.map((item, index) => (
+
           <View key={index} style={styles.itemCard}>
 
             <Text style={styles.itemName}>{item.name}</Text>
-            <Text style={styles.itemCategory}>{item.category}</Text>
+
+            <Text style={styles.itemCategory}>
+              {item.category}
+            </Text>
 
             <View style={styles.stockBadge}>
               <Text style={styles.stockText}>
@@ -119,6 +130,7 @@ export default function ItemsScreen() {
             No items yet
           </Text>
         )}
+
       </ScrollView>
 
       {/* MODAL */}
@@ -127,13 +139,17 @@ export default function ItemsScreen() {
         <SafeAreaView style={styles.modalContainer}>
 
           <View style={styles.modalHeader}>
+
             <TouchableOpacity onPress={() => setShowModal(false)}>
               <Ionicons name="close" size={26} />
             </TouchableOpacity>
 
-            <Text style={styles.modalTitle}>Add Item</Text>
+            <Text style={styles.modalTitle}>
+              Add Item
+            </Text>
 
             <View style={{ width: 26 }} />
+
           </View>
 
           <ScrollView style={styles.modalContent}>
@@ -154,6 +170,7 @@ export default function ItemsScreen() {
             <Text style={styles.label}>Category</Text>
 
             <View style={styles.pickerWrapper}>
+
               <Picker
                 selectedValue={formData.category}
                 onValueChange={(v) =>
@@ -163,6 +180,7 @@ export default function ItemsScreen() {
                 <Picker.Item label="Street Light" value="Street Light" />
                 <Picker.Item label="Flood Light" value="Flood Light" />
               </Picker>
+
             </View>
 
             {/* STOCK */}
@@ -184,6 +202,7 @@ export default function ItemsScreen() {
               onPress={handleSaveItem}
               disabled={loading}
             >
+
               {loading ? (
                 <ActivityIndicator color="#FFF" />
               ) : (
@@ -191,6 +210,7 @@ export default function ItemsScreen() {
                   Save Item
                 </Text>
               )}
+
             </TouchableOpacity>
 
           </ScrollView>
@@ -201,6 +221,9 @@ export default function ItemsScreen() {
     </SafeAreaView>
   );
 }
+
+
+/* ================= STYLES ================= */
 
 const styles = StyleSheet.create({
 
