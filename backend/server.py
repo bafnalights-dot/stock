@@ -1,12 +1,15 @@
-from pymongo import MongoClient
-import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from pymongo import MongoClient
+from typing import List
+
 
 app = FastAPI()
-# MongoDB Connection
-MONGO_URL = "mongodb+srv://bafnalights_db_user:b1a1f1n1a1@cluster0.enljv5h.mongodb.net/stockdb?appName=Cluster0"
+
+# ---------------- MONGO ----------------
+
+MONGO_URL = "mongodb+srv://bafnalights_db_user:b1a1f1n1a1@cluster0.enljv5h.mongodb.net/stockdb"
 
 client = MongoClient(MONGO_URL)
 db = client["stockdb"]
@@ -15,6 +18,7 @@ items_col = db["items"]
 parts_col = db["parts"]
 sales_col = db["sales"]
 production_col = db["production"]
+
 
 # ---------------- CORS ----------------
 
@@ -26,10 +30,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------- DATA ----------------
 
+# ---------------- ADMIN ----------------
 
-ADMIN = {"username": "admin", "password": "admin"}
+ADMIN = {
+    "username": "admin",
+    "password": "admin"
+}
 
 
 # ---------------- MODELS ----------------
@@ -40,8 +47,8 @@ class Login(BaseModel):
 
 
 class PartBOM(BaseModel):
-    name: str
-    qty: int
+    part_name: str
+    quantity_needed: int
 
 
 class Item(BaseModel):
@@ -54,7 +61,7 @@ class Item(BaseModel):
 class Sale(BaseModel):
     item_name: str
     quantity: int
-    party: str
+    party_name: str
 
 
 class Purchase(BaseModel):
@@ -65,7 +72,6 @@ class Purchase(BaseModel):
 class Production(BaseModel):
     item_name: str
     quantity: int
-
 
 
 # ---------------- LOGIN ----------------
@@ -83,6 +89,7 @@ def login(data: Login):
 
 @app.get("/api/items")
 def get_items():
+
     items = list(items_col.find({}, {"_id": 0}))
     return items
 
@@ -90,35 +97,24 @@ def get_items():
 @app.post("/api/items")
 def add_item(item: Item):
 
-    ITEMS.append({
+    if items_col.find_one({"name": item.name}):
+        raise HTTPException(400, "Item already exists")
+
+    doc = {
         "name": item.name,
         "category": item.category,
-        "stock": item.opening_stock,
+        "current_stock": item.opening_stock,
         "parts": [p.dict() for p in item.parts]
-    })
+    }
+
+    items_col.insert_one(doc)
 
     return {"msg": "Item added"}
-
-@app.get("/api/items/{name}/parts")
-def get_item_parts(name: str):
-
-    item = next((i for i in ITEMS if i["name"] == name), None)
-
-    if not item:
-        raise HTTPException(404, "Item not found")
-
-    return item["parts"]
-
 
 
 # ---------------- PARTS / PURCHASE ----------------
 
-@app.get("/api/parts")
-def get_parts():
-    return PARTS
-
-
-@app.post("/api/purchase")
+@app.post("/api/purchases")
 def purchase(p: Purchase):
 
     parts_col.update_one(
@@ -130,37 +126,50 @@ def purchase(p: Purchase):
     return {"msg": "Part added"}
 
 
-
 # ---------------- PRODUCTION ----------------
 
 @app.post("/api/production")
 def production(p: Production):
 
-    item = next((i for i in ITEMS if i["name"] == p.item_name), None)
+    item = items_col.find_one({"name": p.item_name})
 
     if not item:
         raise HTTPException(404, "Item not found")
 
-    # Check & deduct parts
+    # Check parts stock
     for part in item["parts"]:
 
-        part_name = part["name"]
-        need = part["qty"] * p.quantity
+        need = part["quantity_needed"] * p.quantity
 
-        if part_name not in PARTS:
-            raise HTTPException(400, f"{part_name} not in stock")
+        stock = parts_col.find_one({"part_name": part["part_name"]})
 
-        if PARTS[part_name] < need:
-            raise HTTPException(400, f"Not enough {part_name}")
+        if not stock or stock["stock"] < need:
+            raise HTTPException(
+                400,
+                f"Not enough {part['part_name']}"
+            )
 
-        PARTS[part_name] -= need
+    # Deduct parts
+    for part in item["parts"]:
 
-    # Increase finished stock
-    item["stock"] += p.quantity
+        need = part["quantity_needed"] * p.quantity
 
-    PRODUCTION.append(p.dict())
+        parts_col.update_one(
+            {"part_name": part["part_name"]},
+            {"$inc": {"stock": -need}}
+        )
+
+    # Add finished stock
+    items_col.update_one(
+        {"name": p.item_name},
+        {"$inc": {"current_stock": p.quantity}}
+    )
+
+    production_col.insert_one(p.dict())
 
     return {"msg": "Production saved"}
+
+
 # ---------------- SALES ----------------
 
 @app.post("/api/sales")
@@ -171,28 +180,14 @@ def sale(s: Sale):
     if not item:
         raise HTTPException(404, "Item not found")
 
-    if item["stock"] < s.quantity:
+    if item["current_stock"] < s.quantity:
         raise HTTPException(400, "Not enough stock")
 
     items_col.update_one(
         {"name": s.item_name},
-        {"$inc": {"stock": -s.quantity}}
+        {"$inc": {"current_stock": -s.quantity}}
     )
 
     sales_col.insert_one(s.dict())
 
     return {"msg": "Sale saved"}
-
-
-
-# ---------------- RESET ----------------
-
-@app.post("/api/reset")
-def reset():
-
-    ITEMS.clear()
-    PARTS.clear()
-    SALES.clear()
-    PRODUCTION.clear()
-
-    return {"msg": "Reset done"}
